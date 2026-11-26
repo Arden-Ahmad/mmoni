@@ -1,0 +1,724 @@
+<Window x:Class="Mmoni.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Mmoni.Controls"
+        Title="Mmoni" Width="404" Height="324"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        Background="Transparent" Topmost="True" ShowInTaskbar="False"
+        ShowActivated="False" UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        Typography.NumeralAlignment="Tabular"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="Auto">
+    <Window.Resources>
+        <SolidColorBrush x:Key="TextColor" Color="#F4F6FB"/>
+        <SolidColorBrush x:Key="PowerColor" Color="#DCE3F2"/>
+        <SolidColorBrush x:Key="SubtleColor" Color="#C3CCE0"/>
+        <SolidColorBrush x:Key="QuietColor" Color="#9AA4BA"/>
+        <SolidColorBrush x:Key="CpuColor" Color="#6FE7CF"/>
+        <SolidColorBrush x:Key="GpuColor" Color="#B2B8FF"/>
+        <SolidColorBrush x:Key="WarmColor" Color="#FBBF24"/>
+        <SolidColorBrush x:Key="HotColor" Color="#FB7185"/>
+        <SolidColorBrush x:Key="LiveGreen" Color="#4ADE80"/>
+
+        <LinearGradientBrush x:Key="GlassBorderBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#48FFFFFF" Offset="0"/>
+            <GradientStop Color="#20FFFFFF" Offset="0.45"/>
+            <GradientStop Color="#14FFFFFF" Offset="1"/>
+        </LinearGradientBrush>
+
+        <LinearGradientBrush x:Key="GlassBorderHoverBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#6CFFFFFF" Offset="0"/>
+            <GradientStop Color="#30FFFFFF" Offset="0.5"/>
+            <GradientStop Color="#20FFFFFF" Offset="1"/>
+        </LinearGradientBrush>
+
+        <SolidColorBrush x:Key="PrecisionBorderBrush" Color="#3E4658"/>
+
+        <LinearGradientBrush x:Key="GlassSegThumbBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#3BFFFFFF" Offset="0"/>
+            <GradientStop Color="#1EFFFFFF" Offset="1"/>
+        </LinearGradientBrush>
+
+        <Style x:Key="CaptionText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="9.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource QuietColor}"/>
+        </Style>
+
+        <Style x:Key="PillTempText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextAlignment" Value="Right"/>
+        </Style>
+
+        <Style x:Key="PillSecondaryText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Foreground" Value="{StaticResource PowerColor}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextAlignment" Value="Right"/>
+        </Style>
+
+        <Style x:Key="SegTabButton" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource QuietColor}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border Background="Transparent" Padding="0,4.5">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              RecognizesAccessKey="False"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="GlassIconButton" TargetType="Button">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Fill" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Fill" Property="Background" Value="#1EFFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Fill" Property="Background" Value="#30FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ThrottleBadge" TargetType="Border">
+            <Setter Property="Background" Value="#30FB7185"/>
+            <Setter Property="BorderBrush" Value="#66FB7185"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="3.5,0.5"/>
+            <Setter Property="Margin" Value="5,0,0,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Visibility" Value="Collapsed"/>
+        </Style>
+
+        <Style x:Key="ScrubTooltipPill" TargetType="Border">
+            <Setter Property="Background" Value="#EE0C0F16"/>
+            <Setter Property="BorderBrush" Value="#2AFFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+        </Style>
+
+        <Storyboard x:Key="LiveDotPulse" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetName="LiveDot"
+                             Storyboard.TargetProperty="Opacity"
+                             From="1.0" To="0.32" Duration="0:0:0.9"
+                             AutoReverse="True">
+                <DoubleAnimation.EasingFunction>
+                    <SineEase EasingMode="EaseInOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+    </Window.Resources>
+
+    <!-- No Background brush => empty pixels are alpha=0 and 100% click-through to VS Code! -->
+    <Grid>
+        <Border x:Name="Chrome" Width="228" Height="28"
+                HorizontalAlignment="Left" VerticalAlignment="Top"
+                Margin="18,6,0,0"
+                CornerRadius="14" BorderThickness="1"
+                BorderBrush="{StaticResource GlassBorderBrush}"
+                Background="#A6141824"
+                SizeChanged="ChromeSizeChanged"
+                MouseEnter="ChromeMouseEnter" MouseLeave="ChromeMouseLeave">
+            <Border.Effect>
+                <DropShadowEffect x:Name="ChromeShadow" Color="#000000" Direction="270"
+                                  ShadowDepth="5" BlurRadius="16" Opacity="0.48"/>
+            </Border.Effect>
+
+            <Grid x:Name="InnerSurface">
+                <Grid.Clip>
+                    <RectangleGeometry x:Name="InnerClip" Rect="0,0,226,26" RadiusX="13" RadiusY="13"/>
+                </Grid.Clip>
+
+                <!-- Ambient corner thermal glow (Liquid Glass mode) -->
+                <Grid x:Name="AmbientGlowLayer" IsHitTestVisible="False">
+                    <Border x:Name="CpuAmbientGlow" CornerRadius="{Binding CornerRadius, ElementName=Chrome}"/>
+                    <Border x:Name="GpuAmbientGlow" CornerRadius="{Binding CornerRadius, ElementName=Chrome}"/>
+                </Grid>
+
+                <!-- Subtle top specular highlight rim -->
+                <Border x:Name="SpecularRim" BorderThickness="0,1,0,0" BorderBrush="#2CFFFFFF"
+                        CornerRadius="{Binding CornerRadius, ElementName=Chrome}"
+                        IsHitTestVisible="False"/>
+
+                <!-- =========================================================
+                     STATE 01: MINIMAL PILL (Fixed-slot columns, zero jitter!)
+                     ========================================================= -->
+                <Button x:Name="MinimalSurface" Background="Transparent" BorderThickness="0"
+                        Cursor="Hand" Focusable="False"
+                        AutomationProperties.Name="Expand Mmoni telemetry"
+                        ToolTip="Hover to peek · Click for dashboard · Drag to move"
+                        Click="ClickMinimalSurface"
+                        PreviewMouseLeftButtonDown="StartDrag" PreviewMouseMove="ContinueDrag"
+                        PreviewMouseLeftButtonUp="EndDrag">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Hit" Background="Transparent">
+                                <ContentPresenter/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Hit" Property="Background" Value="#0EFFFFFF"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Grid Margin="11,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- CPU Fixed Slots -->
+                        <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="34"/>
+                                <ColumnDefinition x:Name="MinimalCpuSecCol" Width="45"/>
+                            </Grid.ColumnDefinitions>
+                            <Ellipse x:Name="MinimalCpuDot" Grid.Column="0" Width="5.5" Height="5.5"
+                                     Fill="{StaticResource CpuColor}" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="MinimalCpuTemp" Grid.Column="1" Text="—" Style="{StaticResource PillTempText}"
+                                       Foreground="{StaticResource CpuColor}"
+                                       AutomationProperties.AutomationId="CpuTemperature"/>
+                            <TextBlock x:Name="MinimalCpuSecondary" Grid.Column="2" Text="—" Style="{StaticResource PillSecondaryText}"
+                                       Margin="4,0,0,0"
+                                       AutomationProperties.AutomationId="CpuPower"/>
+                        </Grid>
+
+                        <Border Grid.Column="1" Width="1" Height="11" Background="#24FFFFFF"
+                                Margin="6,0" VerticalAlignment="Center"/>
+
+                        <!-- GPU Fixed Slots -->
+                        <Grid Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="34"/>
+                                <ColumnDefinition x:Name="MinimalGpuSecCol" Width="45"/>
+                            </Grid.ColumnDefinitions>
+                            <Ellipse x:Name="MinimalGpuDot" Grid.Column="0" Width="5.5" Height="5.5"
+                                     Fill="{StaticResource GpuColor}" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="MinimalGpuTemp" Grid.Column="1" Text="—" Style="{StaticResource PillTempText}"
+                                       Foreground="{StaticResource GpuColor}"
+                                       AutomationProperties.AutomationId="GpuTemperature"/>
+                            <TextBlock x:Name="MinimalGpuSecondary" Grid.Column="2" Text="—" Style="{StaticResource PillSecondaryText}"
+                                       Margin="4,0,0,0"
+                                       AutomationProperties.AutomationId="GpuPower"/>
+                        </Grid>
+                    </Grid>
+                </Button>
+
+                <!-- =========================================================
+                     STATE 02: HOVER PEEK (Fixed-slot metrics, zero jitter!)
+                     ========================================================= -->
+                <Button x:Name="PeekSurface" Width="320" Height="74"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="False"
+                        Visibility="Collapsed" Opacity="0" IsHitTestVisible="False"
+                        ToolTip="Click to open full dashboard · Drag to move"
+                        Click="ClickPeekSurface"
+                        PreviewMouseLeftButtonDown="StartDrag" PreviewMouseMove="ContinueDrag"
+                        PreviewMouseLeftButtonUp="EndDrag">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Hit" Background="Transparent">
+                                <ContentPresenter/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Hit" Property="Background" Value="#08FFFFFF"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Grid Margin="14,10,14,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Peek CPU -->
+                        <StackPanel VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse Width="5.5" Height="5.5" Fill="{StaticResource CpuColor}"
+                                         Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="CPU" Style="{StaticResource CaptionText}"/>
+                                <Border x:Name="PeekCpuThrottle" Style="{StaticResource ThrottleBadge}">
+                                    <TextBlock x:Name="PeekCpuThrottleText" Text="THRM" FontSize="8"
+                                               FontWeight="Bold" Foreground="{StaticResource HotColor}"/>
+                                </Border>
+                            </StackPanel>
+                            <TextBlock x:Name="PeekCpuTemp" Text="—" FontSize="19" FontWeight="SemiBold"
+                                       Foreground="{StaticResource CpuColor}" Margin="0,1,0,1"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="38"/>
+                                    <ColumnDefinition Width="9"/>
+                                    <ColumnDefinition Width="26"/>
+                                    <ColumnDefinition Width="9"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="PeekCpuPower" Grid.Column="0" Text="—" FontSize="10.2"
+                                           Foreground="{StaticResource SubtleColor}" TextAlignment="Left"/>
+                                <TextBlock Grid.Column="1" Text="·" FontSize="10.2"
+                                           Foreground="{StaticResource QuietColor}" HorizontalAlignment="Center"/>
+                                <TextBlock x:Name="PeekCpuLoad" Grid.Column="2" Text="—" FontSize="10.2"
+                                           Foreground="{StaticResource SubtleColor}" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="·" FontSize="10.2"
+                                           Foreground="{StaticResource QuietColor}" HorizontalAlignment="Center"/>
+                                <TextBlock x:Name="PeekCpuClock" Grid.Column="4" Text="—" FontSize="10.2"
+                                           Foreground="{StaticResource SubtleColor}" TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <Border Grid.Column="1" Width="1" Height="42" Background="#1EFFFFFF"
+                                Margin="11,0" VerticalAlignment="Center"/>
+
+                        <!-- Peek GPU -->
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse x:Name="PeekGpuDot" Width="5.5" Height="5.5" Fill="{StaticResource GpuColor}"
+                                         Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="GPU" Style="{StaticResource CaptionText}"/>
+                                <Border x:Name="PeekGpuThrottle" Style="{StaticResource ThrottleBadge}">
+                                    <TextBlock x:Name="PeekGpuThrottleText" Text="THRM" FontSize="8"
+                                               FontWeight="Bold" Foreground="{StaticResource HotColor}"/>
+                                </Border>
+                            </StackPanel>
+                            <TextBlock x:Name="PeekGpuTemp" Text="—" FontSize="19" FontWeight="SemiBold"
+                                       Foreground="{StaticResource GpuColor}" Margin="0,1,0,1"/>
+                            <Grid x:Name="PeekGpuSubGrid">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="38"/>
+                                    <ColumnDefinition Width="9"/>
+                                    <ColumnDefinition Width="26"/>
+                                    <ColumnDefinition Width="9"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="PeekGpuPower" Grid.Column="0" Text="—" FontSize="10.2"
+                                           Foreground="{StaticResource SubtleColor}" TextAlignment="Left"/>
+                                <TextBlock Grid.Column="1" Text="·" FontSize="10.2"
+                                           Foreground="{StaticResource QuietColor}" HorizontalAlignment="Center"/>
+                                <TextBlock x:Name="PeekGpuLoad" Grid.Column="2" Text="—" FontSize="10.2"
+                                           Foreground="{StaticResource SubtleColor}" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="·" FontSize="10.2"
+                                           Foreground="{StaticResource QuietColor}" HorizontalAlignment="Center"/>
+                                <TextBlock x:Name="PeekGpuClock" Grid.Column="4" Text="—" FontSize="10.2"
+                                           Foreground="{StaticResource SubtleColor}" TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+                            <TextBlock x:Name="PeekGpuSleepText" Text="dGPU sleeping (D3)" FontSize="10.2"
+                                       Foreground="{StaticResource QuietColor}" Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
+                <!-- =========================================================
+                     STATE 03: FULL DASHBOARD (Gaya B Dual Glass Cards)
+                     ========================================================= -->
+                <Grid x:Name="DashboardSurface" Width="368" Height="262"
+                      HorizontalAlignment="Left" VerticalAlignment="Top"
+                      Visibility="Collapsed" Opacity="0" IsHitTestVisible="False">
+                    <Grid.RenderTransform>
+                        <TranslateTransform x:Name="DashboardSlide" Y="0"/>
+                    </Grid.RenderTransform>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Unified Draggable Header (Fixed-slot live metrics, zero jitter!) -->
+                    <Grid Margin="12,9,10,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button x:Name="DashboardHeader" Background="Transparent" BorderThickness="0"
+                                Cursor="Hand" Focusable="False"
+                                AutomationProperties.Name="Collapse telemetry dashboard"
+                                ToolTip="Click to collapse · Drag to move"
+                                Click="ClickDashboardHeader"
+                                PreviewMouseLeftButtonDown="StartDrag" PreviewMouseMove="ContinueDrag"
+                                PreviewMouseLeftButtonUp="EndDrag">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Hit" CornerRadius="10" Background="Transparent" Padding="2,1">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Hit" Property="Background" Value="#0AFFFFFF"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Header CPU -->
+                                <StackPanel VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Width="5.5" Height="5.5" Fill="{StaticResource CpuColor}"
+                                                 Margin="0,0,4.5,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="CPU" Style="{StaticResource CaptionText}"/>
+                                        <Border x:Name="DashCpuThrottle" Style="{StaticResource ThrottleBadge}">
+                                            <TextBlock x:Name="DashCpuThrottleText" Text="THRM" FontSize="8"
+                                                       FontWeight="Bold" Foreground="{StaticResource HotColor}"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <Grid Margin="0,1.5,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="42"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="DashCpuTemp" Grid.Column="0" Text="—" FontSize="15" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource CpuColor}" TextAlignment="Left"/>
+                                        <TextBlock x:Name="DashCpuPower" Grid.Column="1" Text="—" FontSize="12.5" FontWeight="Medium"
+                                                   Foreground="{StaticResource PowerColor}" VerticalAlignment="Bottom"
+                                                   Margin="3,0,0,1"/>
+                                    </Grid>
+                                    <Grid Margin="0,1,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="28"/>
+                                            <ColumnDefinition Width="10"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="DashCpuLoad" Grid.Column="0" Text="—" FontSize="9.8"
+                                                   Foreground="{StaticResource QuietColor}" TextAlignment="Left"/>
+                                        <TextBlock Grid.Column="1" Text="·" FontSize="9.8"
+                                                   Foreground="{StaticResource QuietColor}" HorizontalAlignment="Center"/>
+                                        <TextBlock x:Name="DashCpuClock" Grid.Column="2" Text="—" FontSize="9.8"
+                                                   Foreground="{StaticResource QuietColor}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <Border Grid.Column="1" Width="1" Height="32" Background="#1CFFFFFF"
+                                        Margin="10,0" VerticalAlignment="Center"/>
+
+                                <!-- Header GPU -->
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse x:Name="DashGpuDot" Width="5.5" Height="5.5" Fill="{StaticResource GpuColor}"
+                                                 Margin="0,0,4.5,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="GPU" Style="{StaticResource CaptionText}"/>
+                                        <Border x:Name="DashGpuThrottle" Style="{StaticResource ThrottleBadge}">
+                                            <TextBlock x:Name="DashGpuThrottleText" Text="THRM" FontSize="8"
+                                                       FontWeight="Bold" Foreground="{StaticResource HotColor}"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <Grid Margin="0,1.5,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="42"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="DashGpuTemp" Grid.Column="0" Text="—" FontSize="15" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource GpuColor}" TextAlignment="Left"/>
+                                        <TextBlock x:Name="DashGpuPower" Grid.Column="1" Text="—" FontSize="12.5" FontWeight="Medium"
+                                                   Foreground="{StaticResource PowerColor}" VerticalAlignment="Bottom"
+                                                   Margin="3,0,0,1"/>
+                                    </Grid>
+                                    <Grid x:Name="DashGpuExtraGrid" Margin="0,1,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="28"/>
+                                            <ColumnDefinition Width="10"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="DashGpuLoad" Grid.Column="0" Text="—" FontSize="9.8"
+                                                   Foreground="{StaticResource QuietColor}" TextAlignment="Left"/>
+                                        <TextBlock Grid.Column="1" Text="·" FontSize="9.8"
+                                                   Foreground="{StaticResource QuietColor}" HorizontalAlignment="Center"/>
+                                        <TextBlock x:Name="DashGpuClock" Grid.Column="2" Text="—" FontSize="9.8"
+                                                   Foreground="{StaticResource QuietColor}"/>
+                                    </Grid>
+                                    <TextBlock x:Name="DashGpuSleepText" Text="dGPU sleeping (D3)" FontSize="9.8"
+                                               Foreground="{StaticResource QuietColor}" Margin="0,1,0,0"
+                                               Visibility="Collapsed"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <!-- Pin & Collapse Circular Glass Buttons -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="6,2,0,0">
+                            <Button x:Name="PinButton" Style="{StaticResource GlassIconButton}" Click="TogglePin"
+                                    Margin="0,0,3,0" ToolTip="Pin dashboard open"
+                                    AutomationProperties.Name="Pin dashboard open">
+                                <Path x:Name="PinIcon"
+                                      Data="M 4,1 L 8,1 L 7.5,5.5 L 10,7.5 L 6.5,7.5 L 6,12 L 5.5,7.5 L 2,7.5 L 4.5,5.5 Z"
+                                      Fill="#9AA4BA" Width="10.5" Height="11.5" Stretch="Uniform"/>
+                            </Button>
+                            <Button Style="{StaticResource GlassIconButton}" Click="ClickDashboardHeader"
+                                    ToolTip="Collapse to pill" AutomationProperties.Name="Collapse to pill">
+                                <Path Data="M 0,4.5 L 4.5,0 L 9,4.5" Stroke="#A8B2C8" StrokeThickness="1.6"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Segmented Control (with sliding glass thumb) + Live Range Pill -->
+                    <Grid Grid.Row="1" Margin="12,2,12,9">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border x:Name="SegmentedTrack" Background="#740A0D16" BorderBrush="#1AFFFFFF"
+                                BorderThickness="1" CornerRadius="13" Padding="2"
+                                HorizontalAlignment="Left" Width="238">
+                            <Grid x:Name="SegmentedGrid">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Animated Sliding Glass Thumb -->
+                                <Border x:Name="SegThumb" Grid.Column="0" CornerRadius="11"
+                                        Background="{StaticResource GlassSegThumbBrush}"
+                                        BorderBrush="#36FFFFFF" BorderThickness="1"
+                                        IsHitTestVisible="False">
+                                    <Border.RenderTransform>
+                                        <TranslateTransform x:Name="SegThumbTransform" X="0"/>
+                                    </Border.RenderTransform>
+                                </Border>
+
+                                <RadioButton x:Name="TemperatureTab" Grid.Column="0" Content="Temp"
+                                             GroupName="Metric" IsChecked="True"
+                                             Style="{StaticResource SegTabButton}" Checked="ChangeMetric"/>
+                                <RadioButton x:Name="PowerTab" Grid.Column="1" Content="Power"
+                                             GroupName="Metric"
+                                             Style="{StaticResource SegTabButton}" Checked="ChangeMetric"/>
+                                <RadioButton x:Name="LoadTab" Grid.Column="2" Content="Load"
+                                             GroupName="Metric"
+                                             Style="{StaticResource SegTabButton}" Checked="ChangeMetric"/>
+                                <RadioButton x:Name="ClockTab" Grid.Column="3" Content="Clock"
+                                             GroupName="Metric"
+                                             Style="{StaticResource SegTabButton}" Checked="ChangeMetric"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Compact Pulsing Live + Range Selector (60s / 5m / 15m) -->
+                        <Button x:Name="RangeButton" Grid.Column="1" Click="CycleTimeRange"
+                                Cursor="Hand" Focusable="False" VerticalAlignment="Center"
+                                ToolTip="Live · updates every second · Click to switch range (60s / 5m / 15m)">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Pill" Background="Transparent" CornerRadius="10"
+                                            Padding="7,3.5" BorderThickness="1" BorderBrush="Transparent">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Pill" Property="Background" Value="#14FFFFFF"/>
+                                            <Setter TargetName="Pill" Property="BorderBrush" Value="#20FFFFFF"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse x:Name="LiveDot" Width="6" Height="6" Fill="{StaticResource LiveGreen}"
+                                         Margin="0,0,5.5,0" VerticalAlignment="Center">
+                                    <Ellipse.Effect>
+                                        <DropShadowEffect Color="#4ADE80" BlurRadius="6" ShadowDepth="0" Opacity="0.75"/>
+                                    </Ellipse.Effect>
+                                </Ellipse>
+                                <TextBlock x:Name="RangeText" Text="60s" FontSize="11" FontWeight="Medium"
+                                           Foreground="{StaticResource QuietColor}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <!-- Gaya B: Dual Side-by-Side Glass Hardware Cards -->
+                    <Grid Grid.Row="2" Margin="12,0,12,11">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="9"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- CPU Glass Card -->
+                        <Border x:Name="CpuCard" Background="#0EFFFFFF" BorderBrush="#1CFFFFFF"
+                                BorderThickness="1" CornerRadius="14" Padding="10,8,10,8"
+                                MouseLeftButtonDown="CardDoubleClickReset"
+                                ToolTip="Hover chart to scrub · Double-click card to reset session peaks">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <StackPanel>
+                                    <TextBlock Text="CPU" FontSize="10.5" FontWeight="Bold"
+                                               Foreground="{StaticResource CpuColor}"/>
+                                    <TextBlock x:Name="CpuModel" Text="Detecting…" FontSize="10"
+                                               Foreground="{StaticResource QuietColor}"
+                                               TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                </StackPanel>
+
+                                <Grid Grid.Row="1" Margin="0,6,0,4">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                        <TextBlock Text="Peak " FontSize="10" Foreground="{StaticResource QuietColor}"/>
+                                        <TextBlock x:Name="CpuPeakText" Text="—" FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource PowerColor}"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <TextBlock Text="Avg " FontSize="10" Foreground="{StaticResource QuietColor}"/>
+                                        <TextBlock x:Name="CpuAvgText" Text="—" FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource PowerColor}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Grid.Row="2" Margin="0,2,0,0">
+                                    <local:HistoryChart x:Name="CpuChart"/>
+
+                                    <TextBlock x:Name="CpuMaxScale" FontSize="9" Foreground="#B89AA4BA"
+                                               HorizontalAlignment="Right" VerticalAlignment="Top"
+                                               Margin="0,1,2,0" IsHitTestVisible="False"/>
+                                    <TextBlock x:Name="CpuMinScale" FontSize="9" Foreground="#B89AA4BA"
+                                               HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                               Margin="0,0,2,1" IsHitTestVisible="False"/>
+
+                                    <Border x:Name="CpuScrubTooltip" Style="{StaticResource ScrubTooltipPill}"
+                                            Margin="0,-16,0,0">
+                                        <TextBlock x:Name="CpuScrubText" FontSize="9.5" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextColor}"/>
+                                    </Border>
+
+                                    <TextBlock x:Name="CpuEmpty" Text="No readings" FontSize="10"
+                                               Foreground="{StaticResource QuietColor}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               IsHitTestVisible="False"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <!-- GPU Glass Card -->
+                        <Border x:Name="GpuCard" Grid.Column="2" Background="#0EFFFFFF" BorderBrush="#1CFFFFFF"
+                                BorderThickness="1" CornerRadius="14" Padding="10,8,10,8"
+                                MouseLeftButtonDown="CardDoubleClickReset"
+                                ToolTip="Hover chart to scrub · Double-click card to reset session peaks">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <StackPanel>
+                                    <TextBlock Text="GPU" FontSize="10.5" FontWeight="Bold"
+                                               Foreground="{StaticResource GpuColor}"/>
+                                    <TextBlock x:Name="GpuModel" Text="Detecting…" FontSize="10"
+                                               Foreground="{StaticResource QuietColor}"
+                                               TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                </StackPanel>
+
+                                <Grid Grid.Row="1" Margin="0,6,0,4">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                        <TextBlock Text="Peak " FontSize="10" Foreground="{StaticResource QuietColor}"/>
+                                        <TextBlock x:Name="GpuPeakText" Text="—" FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource PowerColor}"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <TextBlock Text="Avg " FontSize="10" Foreground="{StaticResource QuietColor}"/>
+                                        <TextBlock x:Name="GpuAvgText" Text="—" FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource PowerColor}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Grid.Row="2" Margin="0,2,0,0">
+                                    <local:HistoryChart x:Name="GpuChart" IsGpu="True"/>
+
+                                    <TextBlock x:Name="GpuMaxScale" FontSize="9" Foreground="#B89AA4BA"
+                                               HorizontalAlignment="Right" VerticalAlignment="Top"
+                                               Margin="0,1,2,0" IsHitTestVisible="False"/>
+                                    <TextBlock x:Name="GpuMinScale" FontSize="9" Foreground="#B89AA4BA"
+                                               HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                               Margin="0,0,2,1" IsHitTestVisible="False"/>
+
+                                    <Border x:Name="GpuScrubTooltip" Style="{StaticResource ScrubTooltipPill}"
+                                            Margin="0,-16,0,0">
+                                        <TextBlock x:Name="GpuScrubText" FontSize="9.5" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextColor}"/>
+                                    </Border>
+
+                                    <TextBlock x:Name="GpuEmpty" Text="No readings" FontSize="10"
+                                               Foreground="{StaticResource QuietColor}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               IsHitTestVisible="False"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- Conditional Warning Banner (Hidden when healthy!) -->
+                    <Border x:Name="StatusBanner" Grid.Row="3" Margin="12,0,12,10"
+                            Background="#26FBBF24" BorderBrush="#48FBBF24" BorderThickness="1"
+                            CornerRadius="8" Padding="8,4" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse x:Name="StatusDot" Width="5.5" Height="5.5"
+                                     Fill="{StaticResource WarmColor}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="StatusText" FontSize="10" Foreground="{StaticResource TextColor}"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

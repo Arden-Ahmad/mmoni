@@ -1,0 +1,1950 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mmoni — Interactive Redesign Prototype</title>
+  <style>
+    /* =========================================================================
+       DESIGN TOKENS & RESET
+       ========================================================================= */
+    :root {
+      --text-color: #F4F6FB;
+      --power-color: #DCE3F2;
+      --quiet-color: #9AA4BA;
+      --cpu-color: #6FE7CF;
+      --gpu-color: #B2B8FF;
+      --warm-color: #FBBF24;
+      --hot-color: #FB7185;
+      --live-green: #4ADE80;
+
+      --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+
+      --vscode-bg: #1e1e1e;
+      --vscode-sidebar: #181818;
+      --vscode-titlebar: #181818;
+      --vscode-border: #2b2b2b;
+      --vscode-active-line: rgba(255, 255, 255, 0.045);
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: var(--font-ui);
+      background: #12141a;
+      color: var(--text-color);
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .tabular {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+    }
+
+    /* =========================================================================
+       BACKDROP LAYER (VS CODE / AURORA BLUR / LIGHT APP)
+       ========================================================================= */
+    .workspace {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.35s ease;
+    }
+
+    /* --- 1. VS CODE MOCKUP --- */
+    .bg-layer {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s ease;
+    }
+    .bg-layer.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .vscode-shell {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      background: var(--vscode-bg);
+      color: #cccccc;
+      font-size: 13px;
+    }
+
+    .vscode-titlebar {
+      height: 36px;
+      background: var(--vscode-titlebar);
+      border-bottom: 1px solid var(--vscode-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .vscode-menu {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: #9d9d9d;
+    }
+    .vscode-logo {
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #3794ff;
+      font-weight: 700;
+    }
+    .vscode-menu span:hover { color: #e0e0e0; }
+
+    .vscode-search-center {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: min(460px, 42vw);
+    }
+    .vscode-nav-arrows {
+      display: flex;
+      gap: 6px;
+      color: #777;
+      font-size: 13px;
+    }
+    .vscode-search-box {
+      flex: 1;
+      height: 24px;
+      background: #222222;
+      border: 1px solid #333333;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      color: #7c7c7c;
+      font-size: 12px;
+      justify-content: space-between;
+    }
+
+    .vscode-win-controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: #9d9d9d;
+      font-size: 12px;
+    }
+    .vscode-win-controls span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+    }
+
+    .vscode-body {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+
+    .vscode-activitybar {
+      width: 46px;
+      background: #181818;
+      border-right: 1px solid var(--vscode-border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 12px;
+      gap: 18px;
+      color: #7d7d7d;
+      flex-shrink: 0;
+    }
+    .vscode-activitybar .act-icon.active {
+      color: #ffffff;
+      position: relative;
+    }
+    .vscode-activitybar .act-icon.active::before {
+      content: "";
+      position: absolute;
+      left: -13px;
+      top: -4px;
+      bottom: -4px;
+      width: 2px;
+      background: #3794ff;
+    }
+
+    .vscode-sidebar {
+      width: 220px;
+      background: var(--vscode-sidebar);
+      border-right: 1px solid var(--vscode-border);
+      padding: 10px 0;
+      font-size: 12.5px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .vscode-sidebar-title {
+      padding: 0 16px 8px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #888;
+    }
+    .tree-item {
+      padding: 4px 16px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: #b8b8b8;
+      white-space: nowrap;
+    }
+    .tree-item.indent-1 { padding-left: 28px; }
+    .tree-item.indent-2 { padding-left: 42px; }
+    .tree-item.active {
+      background: #2a2d2e;
+      color: #ffffff;
+    }
+    .file-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .vscode-editor-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: #1f1f1f;
+    }
+    .vscode-tabs {
+      height: 35px;
+      background: #181818;
+      border-bottom: 1px solid var(--vscode-border);
+      display: flex;
+      align-items: stretch;
+    }
+    .vscode-tab {
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      background: #1f1f1f;
+      color: #ffffff;
+      border-top: 1px solid #3794ff;
+      border-right: 1px solid var(--vscode-border);
+    }
+    .vscode-tab.inactive {
+      background: #181818;
+      color: #8a8a8a;
+      border-top-color: transparent;
+    }
+
+    .vscode-breadcrumb {
+      height: 24px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      color: #8a8a8a;
+      background: #1f1f1f;
+    }
+
+    .vscode-code {
+      flex: 1;
+      padding: 8px 0 80px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.65;
+      overflow: hidden;
+    }
+    .code-line {
+      display: flex;
+      padding: 0 18px;
+      white-space: pre;
+    }
+    .code-line.highlight {
+      background: var(--vscode-active-line);
+    }
+    .ln {
+      width: 38px;
+      color: #5a5a5a;
+      text-align: right;
+      padding-right: 18px;
+      flex-shrink: 0;
+    }
+    .tok-tag { color: #569cd6; }
+    .tok-attr { color: #9cdcfe; }
+    .tok-str { color: #ce9178; }
+    .tok-punc { color: #808080; }
+    .tok-comment { color: #6a9955; }
+    .swatch {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      margin-right: 4px;
+      vertical-align: -1px;
+      border: 1px solid rgba(255,255,255,0.25);
+    }
+
+    /* --- 2. AURORA BLUR WALLPAPER --- */
+    .aurora-bg {
+      background:
+        radial-gradient(circle at 22% 28%, rgba(111, 231, 207, 0.32) 0%, transparent 45%),
+        radial-gradient(circle at 76% 24%, rgba(178, 184, 255, 0.36) 0%, transparent 48%),
+        radial-gradient(circle at 52% 72%, rgba(99, 102, 241, 0.30) 0%, transparent 50%),
+        radial-gradient(circle at 82% 80%, rgba(251, 113, 133, 0.22) 0%, transparent 42%),
+        linear-gradient(135deg, #0b1020 0%, #11182c 45%, #161229 100%);
+    }
+    .aurora-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(circle at 50% 40%, black 20%, transparent 80%);
+    }
+    .aurora-hint {
+      position: absolute;
+      top: 12px;
+      left: 18px;
+      font-size: 11.5px;
+      color: rgba(244, 246, 251, 0.45);
+      letter-spacing: 0.03em;
+    }
+
+    /* --- 3. LIGHT APP BACKDROP --- */
+    .light-bg {
+      background: #f3f5f9;
+      color: #1e293b;
+      display: flex;
+      flex-direction: column;
+    }
+    .light-topbar {
+      height: 36px;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .light-content {
+      flex: 1;
+      padding: 36px 48px;
+      max-width: 960px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .light-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+      margin-bottom: 16px;
+    }
+    .light-skeleton-title {
+      width: 240px;
+      height: 16px;
+      border-radius: 6px;
+      background: #e2e8f0;
+      margin-bottom: 14px;
+    }
+    .light-skeleton-line {
+      height: 10px;
+      border-radius: 5px;
+      background: #f1f5f9;
+      margin-bottom: 10px;
+    }
+
+    /* =========================================================================
+       MMONI WIDGET STAGE & SHARED STRUCTURE
+       ========================================================================= */
+    .stage-badge {
+      position: fixed;
+      top: 46px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: rgba(244, 246, 251, 0.55);
+      background: rgba(15, 18, 26, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(10px);
+      padding: 4px 12px;
+      border-radius: 999px;
+      pointer-events: none;
+      z-index: 40;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      white-space: nowrap;
+    }
+    .stage-badge.visible { opacity: 1; }
+
+    .mmoni-slot {
+      position: fixed;
+      z-index: 100;
+      top: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: opacity 0.25s ease;
+    }
+    .mmoni-slot.hidden {
+      display: none;
+    }
+
+    .compare-label {
+      display: none;
+      margin-bottom: 8px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      background: rgba(15, 18, 26, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-color);
+      backdrop-filter: blur(10px);
+      pointer-events: none;
+    }
+    body.mode-compare .compare-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Base Widget Shell */
+    .mmoni-widget {
+      position: relative;
+      color: var(--text-color);
+      overflow: hidden;
+      will-change: width, height, border-radius, transform, box-shadow;
+      touch-action: none;
+    }
+
+    /* Drag handle cursor */
+    .mmoni-drag-area {
+      cursor: grab;
+    }
+    .mmoni-drag-area:active,
+    .mmoni-widget.dragging .mmoni-drag-area {
+      cursor: grabbing;
+    }
+
+    /* --- COLLAPSED PILL CONTENT --- */
+    .mmoni-pill {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      padding: 0 13px;
+      white-space: nowrap;
+      width: 100%;
+      height: 100%;
+    }
+
+    .mmoni-widget.expanded .mmoni-pill {
+      display: none;
+    }
+
+    .pill-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    .dot.cpu { background: var(--cpu-color); }
+    .dot.gpu { background: var(--gpu-color); }
+
+    .pill-temp {
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      transition: color 0.3s ease;
+    }
+    .pill-power {
+      color: var(--power-color);
+      font-weight: 500;
+      opacity: 0.92;
+    }
+
+    .pill-divider {
+      width: 1px;
+      height: 11px;
+      background: rgba(255, 255, 255, 0.14);
+      flex-shrink: 0;
+    }
+
+    /* --- EXPANDED PANEL CONTENT --- */
+    .mmoni-expanded {
+      display: none;
+      flex-direction: column;
+      width: 100%;
+      padding: 10px 12px 12px;
+      gap: 10px;
+      position: relative;
+      z-index: 2;
+    }
+    .mmoni-widget.expanded .mmoni-expanded {
+      display: flex;
+      animation: panelFadeIn 0.22s ease forwards;
+    }
+
+    @keyframes panelFadeIn {
+      from { opacity: 0; transform: translateY(-3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Unified Header */
+    .exp-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 2px 2px 4px;
+    }
+
+    .exp-metrics {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .exp-metric-block {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .exp-metric-label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--quiet-color);
+    }
+    .exp-metric-values {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      line-height: 1.1;
+    }
+    .exp-temp {
+      font-size: 14.5px;
+      font-weight: 650;
+      transition: color 0.3s ease;
+    }
+    .exp-power {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--power-color);
+    }
+    .exp-header-divider {
+      width: 1px;
+      height: 24px;
+      background: rgba(255, 255, 255, 0.10);
+    }
+
+    .exp-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .icon-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--quiet-color);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .icon-btn:hover {
+      background: rgba(255, 255, 255, 0.09);
+      color: var(--text-color);
+    }
+    .icon-btn.pinned {
+      color: var(--cpu-color);
+      background: rgba(111, 231, 207, 0.12);
+      border-color: rgba(111, 231, 207, 0.25);
+    }
+
+    /* Segmented Control + Live 60s Row */
+    .exp-controls-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .segmented-control {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      padding: 2px;
+      border-radius: 999px;
+      flex: 1;
+      max-width: 236px;
+    }
+    .seg-thumb {
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      left: 2px;
+      width: calc(25% - 1px);
+      border-radius: 999px;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .seg-btn {
+      position: relative;
+      z-index: 2;
+      border: none;
+      background: transparent;
+      color: var(--quiet-color);
+      font-family: var(--font-ui);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 0;
+      cursor: pointer;
+      transition: color 0.18s ease;
+      text-align: center;
+    }
+    .seg-btn:hover { color: var(--text-color); }
+    .seg-btn.active {
+      color: var(--text-color);
+      font-weight: 600;
+    }
+
+    .live-badge {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--quiet-color);
+      padding: 3px 6px;
+      border-radius: 999px;
+      cursor: default;
+    }
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--live-green);
+      box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
+      animation: livePulse 1.8s ease-in-out infinite;
+    }
+    .live-dot.paused {
+      background: var(--warm-color);
+      box-shadow: none;
+      animation: none;
+    }
+    @keyframes livePulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.82); }
+    }
+    .live-badge::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      right: 0;
+      background: rgba(14, 17, 24, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-color);
+      font-size: 10.5px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(3px);
+      transition: opacity 0.16s ease, transform 0.16s ease;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    }
+    .live-badge:hover::after {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Hardware Cards Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+
+    .hw-card {
+      padding: 9px 10px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+      position: relative;
+    }
+
+    .hw-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .hw-title-wrap {
+      min-width: 0;
+      flex: 1;
+    }
+    .hw-label-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .hw-label-row.cpu { color: var(--cpu-color); }
+    .hw-label-row.gpu { color: var(--gpu-color); }
+
+    .hw-model {
+      font-size: 10px;
+      color: var(--quiet-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+
+    .hw-live-badge {
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--text-color);
+      padding: 1px 6px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      white-space: nowrap;
+      display: none;
+    }
+    .hw-live-badge.visible {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .hw-stats-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--quiet-color);
+      padding: 0 1px;
+    }
+    .hw-stats-row strong {
+      color: var(--power-color);
+      font-weight: 600;
+      margin-left: 3px;
+    }
+
+    /* Sparkline Container */
+    .spark-wrap {
+      position: relative;
+      width: 100%;
+      height: 58px;
+      margin-top: 1px;
+      cursor: crosshair;
+    }
+    .spark-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
+    }
+    .spark-scale-label {
+      position: absolute;
+      right: 2px;
+      font-size: 9px;
+      font-weight: 500;
+      color: rgba(154, 164, 186, 0.72);
+      pointer-events: none;
+      line-height: 1;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+    }
+    .spark-scale-label.max { top: 2px; }
+    .spark-scale-label.min { bottom: 2px; }
+
+    .spark-tooltip {
+      position: absolute;
+      top: -22px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(12, 15, 22, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: var(--text-color);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 5px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.12s ease;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.45);
+    }
+    .spark-tooltip.visible { opacity: 1; }
+
+    /* =========================================================================
+       DIRECTION A: MINIMALIS-TEKNIS (REFINED PRECISION FLUENT)
+       ========================================================================= */
+    .mmoni-widget.style-minimal {
+      width: 214px;
+      height: 26px;
+      border-radius: 999px;
+      background: rgba(19, 22, 29, 0.90);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 4px 14px rgba(0, 0, 0, 0.42);
+      transition:
+        width 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        height 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        border-radius 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        box-shadow 180ms ease,
+        border-color 180ms ease;
+    }
+
+    .mmoni-widget.style-minimal:not(.expanded):hover {
+      border-color: rgba(255, 255, 255, 0.18);
+      background: rgba(23, 27, 36, 0.94);
+    }
+
+    .mmoni-widget.style-minimal.expanded {
+      width: 348px;
+      height: 224px;
+      border-radius: 10px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.10),
+        0 14px 34px rgba(0, 0, 0, 0.56),
+        0 2px 6px rgba(0, 0, 0, 0.35);
+    }
+
+    .style-minimal .segmented-control {
+      background: rgba(11, 13, 18, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .style-minimal .seg-thumb {
+      background: rgba(255, 255, 255, 0.11);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .style-minimal .hw-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 7px;
+    }
+
+    /* =========================================================================
+       DIRECTION B: DYNAMIC ISLAND GLASS (PLAYFUL ACRYLIC / LIQUID FLUENT)
+       ========================================================================= */
+    .mmoni-widget.style-island {
+      width: 218px;
+      height: 28px;
+      border-radius: 999px;
+      background: rgba(22, 26, 38, 0.58);
+      backdrop-filter: blur(26px) saturate(185%);
+      -webkit-backdrop-filter: blur(26px) saturate(185%);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        0 8px 24px rgba(0, 0, 0, 0.42),
+        0 1px 3px rgba(0, 0, 0, 0.3);
+      transition:
+        width 310ms cubic-bezier(0.32, 1.32, 0.48, 1),
+        height 310ms cubic-bezier(0.32, 1.32, 0.48, 1),
+        border-radius 310ms cubic-bezier(0.32, 1.32, 0.48, 1),
+        transform 240ms cubic-bezier(0.32, 1.32, 0.48, 1),
+        box-shadow 260ms ease,
+        border-color 220ms ease;
+    }
+
+    .mmoni-widget.style-island:not(.expanded):hover {
+      transform: scale(1.035);
+      border-color: rgba(255, 255, 255, 0.26);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.30),
+        0 10px 28px rgba(0, 0, 0, 0.48),
+        0 0 16px rgba(111, 231, 207, 0.14);
+    }
+
+    .mmoni-widget.style-island.expanded {
+      width: 356px;
+      height: 232px;
+      border-radius: 20px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.24),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+        0 24px 54px rgba(0, 0, 0, 0.58),
+        0 6px 16px rgba(0, 0, 0, 0.32);
+    }
+
+    /* Ambient corner thermal glow for Dynamic Island */
+    .island-glow {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.72;
+      transition: background 0.6s ease;
+    }
+    .style-minimal .island-glow {
+      display: none;
+    }
+
+    .style-island .segmented-control {
+      background: rgba(10, 13, 22, 0.46);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+    }
+    .style-island .seg-thumb {
+      background: linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.12) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.20);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+      transition: transform 280ms cubic-bezier(0.32, 1.32, 0.48, 1);
+    }
+
+    .style-island .hw-card {
+      background: rgba(255, 255, 255, 0.055);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 14px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+    }
+
+    .style-island .icon-btn {
+      border-radius: 999px;
+    }
+
+    /* =========================================================================
+       BOTTOM FLOATING CONTROL DOCK
+       ========================================================================= */
+    .control-dock {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 16px;
+      background: rgba(16, 19, 27, 0.86);
+      backdrop-filter: blur(20px) saturate(160%);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.10),
+        0 14px 36px rgba(0, 0, 0, 0.55);
+      max-width: calc(100vw - 24px);
+    }
+
+    .dock-group {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 3px;
+      border-radius: 10px;
+    }
+
+    .dock-btn {
+      border: none;
+      background: transparent;
+      color: var(--quiet-color);
+      font-family: var(--font-ui);
+      font-size: 11.5px;
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.16s ease;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .dock-btn:hover {
+      color: var(--text-color);
+      background: rgba(255, 255, 255, 0.07);
+    }
+    .dock-btn.active {
+      color: var(--text-color);
+      background: rgba(255, 255, 255, 0.14);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      font-weight: 600;
+    }
+    .dock-btn.thermal-warm.active {
+      color: #fef3c7;
+      background: rgba(251, 191, 36, 0.22);
+      border: 1px solid rgba(251, 191, 36, 0.35);
+    }
+    .dock-btn.thermal-hot.active {
+      color: #ffe4e6;
+      background: rgba(251, 113, 133, 0.24);
+      border: 1px solid rgba(251, 113, 133, 0.38);
+    }
+
+    .dock-sep {
+      width: 1px;
+      height: 20px;
+      background: rgba(255, 255, 255, 0.10);
+    }
+
+    @media (max-width: 820px) {
+      .vscode-sidebar, .vscode-activitybar { display: none; }
+      .vscode-search-center { display: none; }
+      .dock-sep { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="workspace">
+    <!-- =====================================================================
+         BACKDROP 1: VS CODE WORKSPACE MOCKUP
+         ===================================================================== -->
+    <div id="bg-vscode" class="bg-layer active">
+      <div class="vscode-shell">
+        <div class="vscode-titlebar">
+          <div class="vscode-menu">
+            <span class="vscode-logo">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 2L8.2 10.6 3.8 7.2 2 8.2v7.6l1.8 1 4.4-3.4L17.5 22l4.5-2.2V4.2L17.5 2zm0 4.6v10.8L11.1 12l6.4-5.4z"/></svg>
+            </span>
+            <span>File</span><span>Edit</span><span>Selection</span><span>View</span>
+            <span>Go</span><span>Run</span><span>Terminal</span><span>Help</span>
+          </div>
+          <div class="vscode-search-center">
+            <div class="vscode-nav-arrows"><span>&#8592;</span><span>&#8594;</span></div>
+            <div class="vscode-search-box">
+              <span>mmoni</span>
+              <span style="opacity:0.45;">&#8981;</span>
+            </div>
+          </div>
+          <div class="vscode-win-controls">
+            <span>&#8212;</span>
+            <span>&#9633;</span>
+            <span>&#10005;</span>
+          </div>
+        </div>
+
+        <div class="vscode-body">
+          <div class="vscode-activitybar">
+            <div class="act-icon active">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6l2 2h8v14H4z"/></svg>
+            </div>
+            <div class="act-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            </div>
+            <div class="act-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M6 8.5v7a2.5 2.5 0 0 0 2.5 2.5h7"/></svg>
+            </div>
+            <div class="act-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/></svg>
+            </div>
+          </div>
+
+          <div class="vscode-sidebar">
+            <div class="vscode-sidebar-title">Explorer</div>
+            <div class="tree-item" style="font-weight:600; color:#e2e2e2;">&#9662; mmoni</div>
+            <div class="tree-item indent-1">&#9656; Assets</div>
+            <div class="tree-item indent-1">&#9656; Controls</div>
+            <div class="tree-item indent-1">&#9662; Monitoring</div>
+            <div class="tree-item indent-2"><span class="file-dot" style="background:#569cd6"></span>SensorMonitor.cs</div>
+            <div class="tree-item indent-2"><span class="file-dot" style="background:#569cd6"></span>SensorSnapshot.cs</div>
+            <div class="tree-item indent-1">&#9662; Platform</div>
+            <div class="tree-item indent-2"><span class="file-dot" style="background:#569cd6"></span>OverlayWindow.cs</div>
+            <div class="tree-item indent-2"><span class="file-dot" style="background:#569cd6"></span>UserSettings.cs</div>
+            <div class="tree-item indent-1"><span class="file-dot" style="background:#4ec9b0"></span>App.xaml</div>
+            <div class="tree-item indent-1 active"><span class="file-dot" style="background:#3794ff"></span>MainWindow.xaml</div>
+            <div class="tree-item indent-1"><span class="file-dot" style="background:#569cd6"></span>MainWindow.xaml.cs</div>
+          </div>
+
+          <div class="vscode-editor-area">
+            <div class="vscode-tabs">
+              <div class="vscode-tab">
+                <span class="file-dot" style="background:#3794ff"></span>
+                <span>MainWindow.xaml</span>
+                <span style="opacity:0.5; margin-left:4px;">&#10005;</span>
+              </div>
+              <div class="vscode-tab inactive">
+                <span class="file-dot" style="background:#569cd6"></span>
+                <span>SensorMonitor.cs</span>
+              </div>
+            </div>
+
+            <div class="vscode-breadcrumb">
+              <span>mmoni</span> <span>&rsaquo;</span> <span style="color:#d4d4d4;">MainWindow.xaml</span>
+            </div>
+
+            <div class="vscode-code">
+              <div class="code-line"><span class="ln">1</span><span class="tok-punc">&lt;</span><span class="tok-tag">Window</span> <span class="tok-attr">x:Class</span><span class="tok-punc">=</span><span class="tok-str">"Mmoni.MainWindow"</span></div>
+              <div class="code-line"><span class="ln">2</span>        <span class="tok-attr">xmlns</span><span class="tok-punc">=</span><span class="tok-str">"http://schemas.microsoft.com/winfx/2006/xaml/presentation"</span></div>
+              <div class="code-line"><span class="ln">3</span>        <span class="tok-attr">xmlns:x</span><span class="tok-punc">=</span><span class="tok-str">"http://schemas.microsoft.com/winfx/2006/xaml"</span></div>
+              <div class="code-line"><span class="ln">4</span>        <span class="tok-attr">xmlns:local</span><span class="tok-punc">=</span><span class="tok-str">"clr-namespace:Mmoni.Controls"</span></div>
+              <div class="code-line highlight"><span class="ln">5</span>        <span class="tok-attr">Title</span><span class="tok-punc">=</span><span class="tok-str">"Mmoni"</span> <span class="tok-attr">Width</span><span class="tok-punc">=</span><span class="tok-str">"214"</span> <span class="tok-attr">Height</span><span class="tok-punc">=</span><span class="tok-str">"26"</span></div>
+              <div class="code-line"><span class="ln">6</span>        <span class="tok-attr">WindowStyle</span><span class="tok-punc">=</span><span class="tok-str">"None"</span> <span class="tok-attr">ResizeMode</span><span class="tok-punc">=</span><span class="tok-str">"NoResize"</span> <span class="tok-attr">AllowsTransparency</span><span class="tok-punc">=</span><span class="tok-str">"True"</span></div>
+              <div class="code-line"><span class="ln">7</span>        <span class="tok-attr">Background</span><span class="tok-punc">=</span><span class="tok-str">"Transparent"</span> <span class="tok-attr">Topmost</span><span class="tok-punc">=</span><span class="tok-str">"True"</span> <span class="tok-attr">ShowInTaskbar</span><span class="tok-punc">=</span><span class="tok-str">"False"</span></div>
+              <div class="code-line"><span class="ln">8</span>        <span class="tok-attr">FontFamily</span><span class="tok-punc">=</span><span class="tok-str">"Segoe UI Variable Text, Segoe UI"</span> <span class="tok-attr">Typography.NumeralAlignment</span><span class="tok-punc">=</span><span class="tok-str">"Tabular"</span><span class="tok-punc">&gt;</span></div>
+              <div class="code-line"><span class="ln">9</span>    <span class="tok-punc">&lt;</span><span class="tok-tag">Window.Resources</span><span class="tok-punc">&gt;</span></div>
+              <div class="code-line"><span class="ln">10</span>        <span class="tok-punc">&lt;</span><span class="tok-tag">SolidColorBrush</span> <span class="tok-attr">x:Key</span><span class="tok-punc">=</span><span class="tok-str">"TextColor"</span>  <span class="tok-attr">Color</span><span class="tok-punc">=</span><span class="tok-str">"<span class="swatch" style="background:#F4F6FB"></span>#F4F6FB"</span><span class="tok-punc">/&gt;</span></div>
+              <div class="code-line"><span class="ln">11</span>        <span class="tok-punc">&lt;</span><span class="tok-tag">SolidColorBrush</span> <span class="tok-attr">x:Key</span><span class="tok-punc">=</span><span class="tok-str">"PowerColor"</span> <span class="tok-attr">Color</span><span class="tok-punc">=</span><span class="tok-str">"<span class="swatch" style="background:#DCE3F2"></span>#DCE3F2"</span><span class="tok-punc">/&gt;</span></div>
+              <div class="code-line"><span class="ln">12</span>        <span class="tok-punc">&lt;</span><span class="tok-tag">SolidColorBrush</span> <span class="tok-attr">x:Key</span><span class="tok-punc">=</span><span class="tok-str">"QuietColor"</span> <span class="tok-attr">Color</span><span class="tok-punc">=</span><span class="tok-str">"<span class="swatch" style="background:#9AA4BA"></span>#9AA4BA"</span><span class="tok-punc">/&gt;</span></div>
+              <div class="code-line"><span class="ln">13</span>        <span class="tok-punc">&lt;</span><span class="tok-tag">SolidColorBrush</span> <span class="tok-attr">x:Key</span><span class="tok-punc">=</span><span class="tok-str">"CpuColor"</span>   <span class="tok-attr">Color</span><span class="tok-punc">=</span><span class="tok-str">"<span class="swatch" style="background:#6FE7CF"></span>#6FE7CF"</span><span class="tok-punc">/&gt;</span></div>
+              <div class="code-line"><span class="ln">14</span>        <span class="tok-punc">&lt;</span><span class="tok-tag">SolidColorBrush</span> <span class="tok-attr">x:Key</span><span class="tok-punc">=</span><span class="tok-str">"GpuColor"</span>   <span class="tok-attr">Color</span><span class="tok-punc">=</span><span class="tok-str">"<span class="swatch" style="background:#B2B8FF"></span>#B2B8FF"</span><span class="tok-punc">/&gt;</span></div>
+              <div class="code-line"><span class="ln">15</span>        <span class="tok-comment">&lt;!-- Dynamic Thermal Threshold Brushes --&gt;</span></div>
+              <div class="code-line"><span class="ln">16</span>        <span class="tok-punc">&lt;</span><span class="tok-tag">SolidColorBrush</span> <span class="tok-attr">x:Key</span><span class="tok-punc">=</span><span class="tok-str">"WarmColor"</span>  <span class="tok-attr">Color</span><span class="tok-punc">=</span><span class="tok-str">"<span class="swatch" style="background:#FBBF24"></span>#FBBF24"</span><span class="tok-punc">/&gt;</span></div>
+              <div class="code-line"><span class="ln">17</span>        <span class="tok-punc">&lt;</span><span class="tok-tag">SolidColorBrush</span> <span class="tok-attr">x:Key</span><span class="tok-punc">=</span><span class="tok-str">"HotColor"</span>   <span class="tok-attr">Color</span><span class="tok-punc">=</span><span class="tok-str">"<span class="swatch" style="background:#FB7185"></span>#FB7185"</span><span class="tok-punc">/&gt;</span></div>
+              <div class="code-line"><span class="ln">18</span>    <span class="tok-punc">&lt;/</span><span class="tok-tag">Window.Resources</span><span class="tok-punc">&gt;</span></div>
+              <div class="code-line"><span class="ln">19</span><span class="tok-punc">&lt;/</span><span class="tok-tag">Window</span><span class="tok-punc">&gt;</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =====================================================================
+         BACKDROP 2: AURORA BLUR WALLPAPER
+         ===================================================================== -->
+    <div id="bg-aurora" class="bg-layer aurora-bg">
+      <div class="aurora-grid"></div>
+      <div class="aurora-hint">Aurora Desktop Backdrop — uji transparansi Acrylic / Glass blur &amp; inner border</div>
+    </div>
+
+    <!-- =====================================================================
+         BACKDROP 3: LIGHT APP MOCKUP
+         ===================================================================== -->
+    <div id="bg-light" class="bg-layer light-bg">
+      <div class="light-topbar">
+        <span>Document — Light Mode App</span>
+        <span>100%</span>
+      </div>
+      <div class="light-content">
+        <div class="light-card">
+          <div class="light-skeleton-title"></div>
+          <div class="light-skeleton-line" style="width:92%"></div>
+          <div class="light-skeleton-line" style="width:78%"></div>
+          <div class="light-skeleton-line" style="width:85%"></div>
+        </div>
+        <div class="light-card">
+          <div class="light-skeleton-title" style="width:180px"></div>
+          <div class="light-skeleton-line" style="width:88%"></div>
+          <div class="light-skeleton-line" style="width:64%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Subtle hint pill -->
+    <div id="stage-badge" class="stage-badge visible">
+      Klik pill di atas untuk Expand &bull; Drag untuk memindahkan &bull; Arahkan kursor ke grafik untuk scrub histori
+    </div>
+
+    <!-- =====================================================================
+         MMONI WIDGET SLOTS (MOUNTED VIA JS)
+         ===================================================================== -->
+    <div id="slot-minimal" class="mmoni-slot">
+      <div class="compare-label">
+        <span style="width:7px;height:7px;border-radius:2px;background:#6FE7CF;"></span>
+        1. Minimalis-Teknis
+      </div>
+      <div id="mount-minimal"></div>
+    </div>
+
+    <div id="slot-island" class="mmoni-slot hidden">
+      <div class="compare-label">
+        <span style="width:7px;height:7px;border-radius:50%;background:#B2B8FF;"></span>
+        2. Dynamic Island Glass
+      </div>
+      <div id="mount-island"></div>
+    </div>
+
+    <!-- =====================================================================
+         FLOATING CONTROL DOCK (BOTTOM CENTER)
+         ===================================================================== -->
+    <div class="control-dock">
+      <!-- Design Switcher -->
+      <div class="dock-group" role="group" aria-label="Pilih Desain">
+        <button class="dock-btn active" data-mode="minimal">1. Minimalis-Teknis</button>
+        <button class="dock-btn" data-mode="island">2. Dynamic Island Glass</button>
+        <button class="dock-btn" data-mode="compare">Bandingkan</button>
+      </div>
+
+      <div class="dock-sep"></div>
+
+      <!-- Thermal Load Simulator -->
+      <div class="dock-group" role="group" aria-label="Simulasi Suhu">
+        <button class="dock-btn active" data-thermal="normal">Normal (~62°C)</button>
+        <button class="dock-btn thermal-warm" data-thermal="warm">Hangat (&gt;80°C)</button>
+        <button class="dock-btn thermal-hot" data-thermal="hot">Panas (&gt;90°C)</button>
+      </div>
+
+      <div class="dock-sep"></div>
+
+      <!-- Backdrop Switcher -->
+      <div class="dock-group" role="group" aria-label="Latar Belakang">
+        <button class="dock-btn active" data-bg="vscode">VS Code</button>
+        <button class="dock-btn" data-bg="aurora">Aurora Blur</button>
+        <button class="dock-btn" data-bg="light">Light</button>
+      </div>
+
+      <div class="dock-sep"></div>
+
+      <!-- Quick Actions -->
+      <div class="dock-group" role="group" aria-label="Aksi Cepat">
+        <button class="dock-btn" id="btn-toggle-all">Expand</button>
+        <button class="dock-btn" id="btn-pause">Pause 1s</button>
+        <button class="dock-btn" id="btn-reset">Reset Posisi</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* =========================================================================
+       1. TELEMETRY ENGINE (60s HISTORY + SMOOTH THERMAL RAMPING)
+       ========================================================================= */
+    const HISTORY_LEN = 60;
+    const TABS = ['temp', 'power', 'load', 'clock'];
+
+    const THERMAL_PROFILES = {
+      normal: {
+        cpuTemp: 62, gpuTemp: 54,
+        cpuPower: 16.6, gpuPower: 11.1,
+        cpuLoad: 24, gpuLoad: 18,
+        cpuClock: 3.4, gpuClock: 1.65
+      },
+      warm: {
+        cpuTemp: 84, gpuTemp: 81,
+        cpuPower: 42.5, gpuPower: 68.0,
+        cpuLoad: 68, gpuLoad: 74,
+        cpuClock: 4.3, gpuClock: 2.25
+      },
+      hot: {
+        cpuTemp: 94, gpuTemp: 91,
+        cpuPower: 64.2, gpuPower: 108.5,
+        cpuLoad: 93, gpuLoad: 96,
+        cpuClock: 4.8, gpuClock: 2.52
+      }
+    };
+
+    const appState = {
+      mode: 'minimal',      // 'minimal' | 'island' | 'compare'
+      thermal: 'normal',    // 'normal' | 'warm' | 'hot'
+      bg: 'vscode',         // 'vscode' | 'aurora' | 'light'
+      paused: false
+    };
+
+    const telemetry = {
+      cpu: { temp: [], power: [], load: [], clock: [] },
+      gpu: { temp: [], power: [], load: [], clock: [] }
+    };
+
+    function clamp(val, min, max) {
+      return Math.max(min, Math.min(max, val));
+    }
+
+    function jitter(val, amount) {
+      return val + (Math.random() - 0.5) * amount * 2;
+    }
+
+    // Seed 60 seconds of realistic historical data
+    function initTelemetry() {
+      const base = THERMAL_PROFILES.normal;
+      let cT = base.cpuTemp, gT = base.gpuTemp;
+      let cP = base.cpuPower, gP = base.gpuPower;
+      let cL = base.cpuLoad, gL = base.gpuLoad;
+      let cC = base.cpuClock, gC = base.gpuClock;
+
+      for (let i = 0; i < HISTORY_LEN; i++) {
+        cT = clamp(cT + (base.cpuTemp - cT) * 0.2 + (Math.random() - 0.5) * 3.2, 45, 99);
+        gT = clamp(gT + (base.gpuTemp - gT) * 0.2 + (Math.random() - 0.5) * 2.4, 38, 97);
+        cP = clamp(cP + (base.cpuPower - cP) * 0.25 + (Math.random() - 0.5) * 3.5, 6, 85);
+        gP = clamp(gP + (base.gpuPower - gP) * 0.25 + (Math.random() - 0.5) * 2.8, 5, 130);
+        cL = clamp(cL + (base.cpuLoad - cL) * 0.22 + (Math.random() - 0.5) * 8, 4, 100);
+        gL = clamp(gL + (base.gpuLoad - gL) * 0.22 + (Math.random() - 0.5) * 6, 2, 100);
+        cC = clamp(cC + (base.cpuClock - cC) * 0.25 + (Math.random() - 0.5) * 0.35, 1.4, 5.1);
+        gC = clamp(gC + (base.gpuClock - gC) * 0.25 + (Math.random() - 0.5) * 0.18, 0.6, 2.7);
+
+        telemetry.cpu.temp.push(cT);
+        telemetry.gpu.temp.push(gT);
+        telemetry.cpu.power.push(cP);
+        telemetry.gpu.power.push(gP);
+        telemetry.cpu.load.push(cL);
+        telemetry.gpu.load.push(gL);
+        telemetry.cpu.clock.push(cC);
+        telemetry.gpu.clock.push(gC);
+      }
+    }
+
+    function stepTelemetry() {
+      const target = THERMAL_PROFILES[appState.thermal];
+      const pushNext = (arr, tgt, rate, noise, min, max) => {
+        const last = arr[arr.length - 1];
+        const next = clamp(last + (tgt - last) * rate + (Math.random() - 0.5) * noise, min, max);
+        arr.shift();
+        arr.push(next);
+      };
+
+      pushNext(telemetry.cpu.temp,  target.cpuTemp,  0.34, 3.0, 42, 99);
+      pushNext(telemetry.gpu.temp,  target.gpuTemp,  0.32, 2.2, 36, 98);
+      pushNext(telemetry.cpu.power, target.cpuPower, 0.36, 3.6, 5,  88);
+      pushNext(telemetry.gpu.power, target.gpuPower, 0.34, 4.2, 4,  135);
+      pushNext(telemetry.cpu.load,  target.cpuLoad,  0.38, 9.0, 3,  100);
+      pushNext(telemetry.gpu.load,  target.gpuLoad,  0.36, 7.5, 2,  100);
+      pushNext(telemetry.cpu.clock, target.cpuClock, 0.35, 0.36, 1.2, 5.1);
+      pushNext(telemetry.gpu.clock, target.gpuClock, 0.35, 0.22, 0.5, 2.75);
+    }
+
+    function getThermalColor(temp, baseHex) {
+      if (temp >= 90) return '#FB7185';
+      if (temp >= 80) return '#FBBF24';
+      return baseHex;
+    }
+
+    function formatMetric(metric, val) {
+      if (metric === 'temp')  return `${Math.round(val)}°C`;
+      if (metric === 'power') return `${val.toFixed(1)}W`;
+      if (metric === 'load')  return `${Math.round(val)}%`;
+      if (metric === 'clock') return `${val.toFixed(2)}GHz`;
+      return `${val}`;
+    }
+
+    /* =========================================================================
+       2. SVG SPARKLINE RENDERER (SHARP POLYLINE vs SMOOTH BEZIER)
+       ========================================================================= */
+    function buildSmoothPath(pts) {
+      if (pts.length < 2) return '';
+      let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[Math.min(pts.length - 1, i + 2)];
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2.y - (p3.y - p1.y) / 6;
+        d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+      }
+      return d;
+    }
+
+    function buildSharpPath(pts) {
+      if (pts.length < 2) return '';
+      return pts.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ');
+    }
+
+    /* =========================================================================
+       3. MMONI WIDGET INSTANCE CLASS
+       ========================================================================= */
+    class MmoniWidget {
+      constructor({ id, styleType, mountEl, slotEl }) {
+        this.id = id;
+        this.styleType = styleType; // 'minimal' | 'island'
+        this.mountEl = mountEl;
+        this.slotEl = slotEl;
+        this.expanded = false;
+        this.pinned = false;
+        this.activeTab = 'temp';
+        this.scrubIndex = { cpu: null, gpu: null };
+        this.isCustomPositioned = false;
+
+        this.renderDOM();
+        this.bindEvents();
+        this.update();
+      }
+
+      renderDOM() {
+        const gradCpuId = `grad-cpu-${this.id}`;
+        const gradGpuId = `grad-gpu-${this.id}`;
+        const glowCpuId = `glow-cpu-${this.id}`;
+        const glowGpuId = `glow-gpu-${this.id}`;
+
+        this.mountEl.innerHTML = `
+          <div class="mmoni-widget style-${this.styleType}" id="widget-${this.id}">
+            <div class="island-glow" data-role="island-glow"></div>
+
+            <!-- COLLAPSED PILL -->
+            <div class="mmoni-pill mmoni-drag-area" data-role="pill">
+              <div class="pill-group">
+                <span class="dot cpu" data-role="pill-cpu-dot"></span>
+                <span class="pill-temp tabular" data-role="pill-cpu-temp">62°C</span>
+                <span class="pill-power tabular" data-role="pill-cpu-power">16.6W</span>
+              </div>
+              <span class="pill-divider"></span>
+              <div class="pill-group">
+                <span class="dot gpu" data-role="pill-gpu-dot"></span>
+                <span class="pill-temp tabular" data-role="pill-gpu-temp">54°C</span>
+                <span class="pill-power tabular" data-role="pill-gpu-power">11.1W</span>
+              </div>
+            </div>
+
+            <!-- EXPANDED PANEL -->
+            <div class="mmoni-expanded" data-role="expanded">
+              <!-- Unified Header -->
+              <div class="exp-header mmoni-drag-area" data-role="exp-header">
+                <div class="exp-metrics">
+                  <div class="exp-metric-block">
+                    <div class="exp-metric-label">
+                      <span class="dot cpu" data-role="exp-cpu-dot"></span>
+                      <span>CPU</span>
+                    </div>
+                    <div class="exp-metric-values">
+                      <span class="exp-temp tabular" data-role="exp-cpu-temp">62°C</span>
+                      <span class="exp-power tabular" data-role="exp-cpu-power">16.6W</span>
+                    </div>
+                  </div>
+                  <span class="exp-header-divider"></span>
+                  <div class="exp-metric-block">
+                    <div class="exp-metric-label">
+                      <span class="dot gpu" data-role="exp-gpu-dot"></span>
+                      <span>GPU</span>
+                    </div>
+                    <div class="exp-metric-values">
+                      <span class="exp-temp tabular" data-role="exp-gpu-temp">54°C</span>
+                      <span class="exp-power tabular" data-role="exp-gpu-power">11.1W</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="exp-actions">
+                  <button class="icon-btn" data-action="pin" title="Pin Always-on-Top">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  </button>
+                  <button class="icon-btn" data-action="collapse" title="Collapse ke Pill">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Segmented Control + Live 60s -->
+              <div class="exp-controls-row">
+                <div class="segmented-control" data-role="segmented">
+                  <div class="seg-thumb" data-role="seg-thumb"></div>
+                  <button class="seg-btn active" data-tab="temp">Temp</button>
+                  <button class="seg-btn" data-tab="power">Power</button>
+                  <button class="seg-btn" data-tab="load">Load</button>
+                  <button class="seg-btn" data-tab="clock">Clock</button>
+                </div>
+                <div class="live-badge tabular" data-tooltip="Live · updates every second">
+                  <span class="live-dot" data-role="live-dot"></span>
+                  <span>60s</span>
+                </div>
+              </div>
+
+              <!-- 2-Column Hardware Cards -->
+              <div class="cards-grid">
+                <!-- CPU Card -->
+                <div class="hw-card">
+                  <div class="hw-card-head">
+                    <div class="hw-title-wrap">
+                      <div class="hw-label-row cpu">CPU</div>
+                      <div class="hw-model" title="Intel Core Ultra 9 185H">Intel Core Ultra 9 185H</div>
+                    </div>
+                    <div class="hw-live-badge tabular" data-role="cpu-extra-badge"></div>
+                  </div>
+                  <div class="hw-stats-row tabular">
+                    <span>Peak<strong data-role="cpu-peak">--</strong></span>
+                    <span>Avg<strong data-role="cpu-avg">--</strong></span>
+                  </div>
+                  <div class="spark-wrap" data-spark="cpu">
+                    <div class="spark-tooltip tabular" data-role="cpu-tooltip"></div>
+                    <span class="spark-scale-label max tabular" data-role="cpu-max"></span>
+                    <span class="spark-scale-label min tabular" data-role="cpu-min"></span>
+                    <svg class="spark-svg" viewBox="0 0 144 58" preserveAspectRatio="none" data-role="cpu-svg">
+                      <defs>
+                        <linearGradient id="${gradCpuId}" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#6FE7CF" stop-opacity="${this.styleType === 'island' ? '0.38' : '0.20'}"/>
+                          <stop offset="100%" stop-color="#6FE7CF" stop-opacity="0.0"/>
+                        </linearGradient>
+                        <filter id="${glowCpuId}" x="-20%" y="-20%" width="140%" height="140%">
+                          <feGaussianBlur stdDeviation="2.2" result="blur"/>
+                          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                        </filter>
+                      </defs>
+                      <line x1="0" y1="14" x2="144" y2="14" stroke="rgba(255,255,255,0.05)" stroke-dasharray="${this.styleType === 'minimal' ? '2 2' : '0'}"/>
+                      <line x1="0" y1="36" x2="144" y2="36" stroke="rgba(255,255,255,0.05)" stroke-dasharray="${this.styleType === 'minimal' ? '2 2' : '0'}"/>
+                      <path data-role="cpu-area" fill="url(#${gradCpuId})"></path>
+                      <path data-role="cpu-line" fill="none" stroke="#6FE7CF" stroke-width="${this.styleType === 'island' ? '1.8' : '1.45'}" stroke-linecap="round" stroke-linejoin="round" ${this.styleType === 'island' ? `filter="url(#${glowCpuId})"` : ''}></path>
+                      <line data-role="cpu-scrub-line" x1="0" y1="0" x2="0" y2="58" stroke="rgba(255,255,255,0.28)" stroke-width="1" stroke-dasharray="2 2" opacity="0"/>
+                      <circle data-role="cpu-tip" r="2.6" fill="#6FE7CF"></circle>
+                      <circle data-role="cpu-scrub-dot" r="3" fill="#ffffff" stroke="#6FE7CF" stroke-width="1.5" opacity="0"></circle>
+                    </svg>
+                  </div>
+                </div>
+
+                <!-- GPU Card -->
+                <div class="hw-card">
+                  <div class="hw-card-head">
+                    <div class="hw-title-wrap">
+                      <div class="hw-label-row gpu">GPU</div>
+                      <div class="hw-model" title="NVIDIA GeForce RTX 4070 Laptop">NVIDIA GeForce RTX 4070 Laptop</div>
+                    </div>
+                    <div class="hw-live-badge tabular" data-role="gpu-extra-badge"></div>
+                  </div>
+                  <div class="hw-stats-row tabular">
+                    <span>Peak<strong data-role="gpu-peak">--</strong></span>
+                    <span>Avg<strong data-role="gpu-avg">--</strong></span>
+                  </div>
+                  <div class="spark-wrap" data-spark="gpu">
+                    <div class="spark-tooltip tabular" data-role="gpu-tooltip"></div>
+                    <span class="spark-scale-label max tabular" data-role="gpu-max"></span>
+                    <span class="spark-scale-label min tabular" data-role="gpu-min"></span>
+                    <svg class="spark-svg" viewBox="0 0 144 58" preserveAspectRatio="none" data-role="gpu-svg">
+                      <defs>
+                        <linearGradient id="${gradGpuId}" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#B2B8FF" stop-opacity="${this.styleType === 'island' ? '0.38' : '0.20'}"/>
+                          <stop offset="100%" stop-color="#B2B8FF" stop-opacity="0.0"/>
+                        </linearGradient>
+                        <filter id="${glowGpuId}" x="-20%" y="-20%" width="140%" height="140%">
+                          <feGaussianBlur stdDeviation="2.2" result="blur"/>
+                          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                        </filter>
+                      </defs>
+                      <line x1="0" y1="14" x2="144" y2="14" stroke="rgba(255,255,255,0.05)" stroke-dasharray="${this.styleType === 'minimal' ? '2 2' : '0'}"/>
+                      <line x1="0" y1="36" x2="144" y2="36" stroke="rgba(255,255,255,0.05)" stroke-dasharray="${this.styleType === 'minimal' ? '2 2' : '0'}"/>
+                      <path data-role="gpu-area" fill="url(#${gradGpuId})"></path>
+                      <path data-role="gpu-line" fill="none" stroke="#B2B8FF" stroke-width="${this.styleType === 'island' ? '1.8' : '1.45'}" stroke-linecap="round" stroke-linejoin="round" ${this.styleType === 'island' ? `filter="url(#${glowGpuId})"` : ''}></path>
+                      <line data-role="gpu-scrub-line" x1="0" y1="0" x2="0" y2="58" stroke="rgba(255,255,255,0.28)" stroke-width="1" stroke-dasharray="2 2" opacity="0"/>
+                      <circle data-role="gpu-tip" r="2.6" fill="#B2B8FF"></circle>
+                      <circle data-role="gpu-scrub-dot" r="3" fill="#ffffff" stroke="#B2B8FF" stroke-width="1.5" opacity="0"></circle>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        this.el = this.mountEl.querySelector('.mmoni-widget');
+        this.q = (role) => this.el.querySelector(`[data-role="${role}"]`);
+      }
+
+      bindEvents() {
+        // 1. Drag & Click-to-Toggle on Pill and Expanded Header
+        const dragHandles = this.el.querySelectorAll('.mmoni-drag-area');
+        dragHandles.forEach((handle) => {
+          handle.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button')) return;
+            e.preventDefault();
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const rect = this.slotEl.getBoundingClientRect();
+            const origLeft = rect.left;
+            const origTop = rect.top;
+            let moved = false;
+
+            this.el.classList.add('dragging');
+            handle.setPointerCapture(e.pointerId);
+
+            const onMove = (ev) => {
+              const dx = ev.clientX - startX;
+              const dy = ev.clientY - startY;
+              if (!moved && Math.hypot(dx, dy) > 4) {
+                moved = true;
+                this.isCustomPositioned = true;
+                this.slotEl.style.transform = 'none';
+              }
+              if (moved) {
+                const maxLeft = window.innerWidth - rect.width - 8;
+                const maxTop = window.innerHeight - 40;
+                this.slotEl.style.left = `${clamp(origLeft + dx, 8, Math.max(8, maxLeft))}px`;
+                this.slotEl.style.top = `${clamp(origTop + dy, 4, Math.max(4, maxTop))}px`;
+              }
+            };
+
+            const onUp = (ev) => {
+              this.el.classList.remove('dragging');
+              handle.removeEventListener('pointermove', onMove);
+              handle.removeEventListener('pointerup', onUp);
+              handle.removeEventListener('pointercancel', onUp);
+
+              if (!moved) {
+                this.setExpanded(!this.expanded);
+              }
+            };
+
+            handle.addEventListener('pointermove', onMove);
+            handle.addEventListener('pointerup', onUp);
+            handle.addEventListener('pointercancel', onUp);
+          });
+        });
+
+        // 2. Collapse & Pin buttons
+        this.el.querySelector('[data-action="collapse"]').addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.setExpanded(false);
+        });
+
+        const pinBtn = this.el.querySelector('[data-action="pin"]');
+        pinBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.pinned = !this.pinned;
+          pinBtn.classList.toggle('pinned', this.pinned);
+        });
+
+        // 3. Segmented Control Tabs
+        const segBtns = this.el.querySelectorAll('.seg-btn');
+        const thumb = this.q('seg-thumb');
+        segBtns.forEach((btn, idx) => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.activeTab = btn.dataset.tab;
+            segBtns.forEach((b) => b.classList.remove('active'));
+            btn.classList.add('active');
+            thumb.style.transform = `translateX(${idx * 100}%)`;
+            this.update();
+          });
+        });
+
+        // 4. Interactive Sparkline Scrubbing
+        ['cpu', 'gpu'].forEach((hw) => {
+          const wrap = this.el.querySelector(`[data-spark="${hw}"]`);
+          const handleScrub = (clientX) => {
+            const rect = wrap.getBoundingClientRect();
+            const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+            this.scrubIndex[hw] = Math.round(ratio * (HISTORY_LEN - 1));
+            this.renderSparkline(hw);
+          };
+
+          wrap.addEventListener('pointermove', (e) => handleScrub(e.clientX));
+          wrap.addEventListener('pointerleave', () => {
+            this.scrubIndex[hw] = null;
+            this.renderSparkline(hw);
+          });
+        });
+      }
+
+      setExpanded(val) {
+        this.expanded = val;
+        this.el.classList.toggle('expanded', val);
+        syncToggleAllButton();
+      }
+
+      update() {
+        const cTemp = telemetry.cpu.temp[HISTORY_LEN - 1];
+        const gTemp = telemetry.gpu.temp[HISTORY_LEN - 1];
+        const cPower = telemetry.cpu.power[HISTORY_LEN - 1];
+        const gPower = telemetry.gpu.power[HISTORY_LEN - 1];
+
+        const cColor = getThermalColor(cTemp, '#6FE7CF');
+        const gColor = getThermalColor(gTemp, '#B2B8FF');
+
+        // Pill values
+        this.q('pill-cpu-temp').textContent = `${Math.round(cTemp)}°C`;
+        this.q('pill-cpu-temp').style.color = cColor;
+        this.q('pill-cpu-power').textContent = `${cPower.toFixed(1)}W`;
+
+        this.q('pill-gpu-temp').textContent = `${Math.round(gTemp)}°C`;
+        this.q('pill-gpu-temp').style.color = gColor;
+        this.q('pill-gpu-power').textContent = `${gPower.toFixed(1)}W`;
+
+        // Expanded Header values
+        this.q('exp-cpu-temp').textContent = `${Math.round(cTemp)}°C`;
+        this.q('exp-cpu-temp').style.color = cColor;
+        this.q('exp-cpu-power').textContent = `${cPower.toFixed(1)}W`;
+
+        this.q('exp-gpu-temp').textContent = `${Math.round(gTemp)}°C`;
+        this.q('exp-gpu-temp').style.color = gColor;
+        this.q('exp-gpu-power').textContent = `${gPower.toFixed(1)}W`;
+
+        // Dynamic Island ambient corner glow (shifts with thermal state!)
+        if (this.styleType === 'island') {
+          const glowEl = this.q('island-glow');
+          const cGlow = cTemp >= 90 ? 'rgba(251, 113, 133, 0.24)' : cTemp >= 80 ? 'rgba(251, 191, 36, 0.20)' : 'rgba(111, 231, 207, 0.16)';
+          const gGlow = gTemp >= 90 ? 'rgba(251, 113, 133, 0.24)' : gTemp >= 80 ? 'rgba(251, 191, 36, 0.20)' : 'rgba(178, 184, 255, 0.17)';
+          glowEl.style.background = `
+            radial-gradient(circle at 12% 18%, ${cGlow} 0%, transparent 55%),
+            radial-gradient(circle at 88% 18%, ${gGlow} 0%, transparent 55%)
+          `;
+        }
+
+        // Live dot pause state
+        this.q('live-dot').classList.toggle('paused', appState.paused);
+
+        // Update both hardware cards
+        this.renderSparkline('cpu');
+        this.renderSparkline('gpu');
+      }
+
+      renderSparkline(hw) {
+        const metric = this.activeTab;
+        const data = telemetry[hw][metric];
+        const baseColor = hw === 'cpu' ? '#6FE7CF' : '#B2B8FF';
+        const latest = data[data.length - 1];
+        const strokeColor = metric === 'temp' ? getThermalColor(latest, baseColor) : baseColor;
+
+        // Peak & Avg
+        const maxVal = Math.max(...data);
+        const minVal = Math.min(...data);
+        const avgVal = data.reduce((a, b) => a + b, 0) / data.length;
+
+        this.q(`${hw}-peak`).textContent = formatMetric(metric, maxVal);
+        this.q(`${hw}-avg`).textContent = formatMetric(metric, avgVal);
+        this.q(`${hw}-max`).textContent = formatMetric(metric, maxVal);
+        this.q(`${hw}-min`).textContent = formatMetric(metric, minVal);
+
+        // Extra live badge only on Load / Clock (avoid redundancy on Temp / Power)
+        const extraBadge = this.q(`${hw}-extra-badge`);
+        if (metric === 'load' || metric === 'clock') {
+          extraBadge.textContent = formatMetric(metric, latest);
+          extraBadge.classList.add('visible');
+        } else {
+          extraBadge.classList.remove('visible');
+        }
+
+        // Compute SVG points (viewBox 144 x 58)
+        const W = 144;
+        const H = 58;
+        const padTop = 9;
+        const padBot = 9;
+        const span = Math.max(maxVal - minVal, metric === 'clock' ? 0.3 : 4);
+        const yMin = minVal - span * 0.12;
+        const yMax = maxVal + span * 0.12;
+
+        const pts = data.map((v, i) => ({
+          x: (i / (HISTORY_LEN - 1)) * (W - 4) + 2,
+          y: padTop + (1 - (v - yMin) / (yMax - yMin)) * (H - padTop - padBot)
+        }));
+
+        const linePath = this.styleType === 'island' ? buildSmoothPath(pts) : buildSharpPath(pts);
+        const areaPath = `${linePath} L ${pts[pts.length - 1].x.toFixed(2)} ${H} L ${pts[0].x.toFixed(2)} ${H} Z`;
+
+        const lineEl = this.q(`${hw}-line`);
+        const areaEl = this.q(`${hw}-area`);
+        const tipEl = this.q(`${hw}-tip`);
+
+        lineEl.setAttribute('d', linePath);
+        lineEl.setAttribute('stroke', strokeColor);
+        areaEl.setAttribute('d', areaPath);
+
+        const lastPt = pts[pts.length - 1];
+        tipEl.setAttribute('cx', lastPt.x.toFixed(2));
+        tipEl.setAttribute('cy', lastPt.y.toFixed(2));
+        tipEl.setAttribute('fill', strokeColor);
+
+        // Scrubbing tooltip & crosshair
+        const sIdx = this.scrubIndex[hw];
+        const scrubLine = this.q(`${hw}-scrub-line`);
+        const scrubDot = this.q(`${hw}-scrub-dot`);
+        const tooltip = this.q(`${hw}-tooltip`);
+
+        if (sIdx !== null && pts[sIdx]) {
+          const sp = pts[sIdx];
+          const secAgo = HISTORY_LEN - 1 - sIdx;
+          const timeLabel = secAgo === 0 ? 'Now' : `-${secAgo}s`;
+          scrubLine.setAttribute('x1', sp.x.toFixed(2));
+          scrubLine.setAttribute('x2', sp.x.toFixed(2));
+          scrubLine.setAttribute('opacity', '1');
+
+          scrubDot.setAttribute('cx', sp.x.toFixed(2));
+          scrubDot.setAttribute('cy', sp.y.toFixed(2));
+          scrubDot.setAttribute('stroke', strokeColor);
+          scrubDot.setAttribute('opacity', '1');
+
+          tooltip.textContent = `${timeLabel}: ${formatMetric(metric, data[sIdx])}`;
+          tooltip.style.left = `${clamp((sp.x / W) * 100, 16, 84)}%`;
+          tooltip.classList.add('visible');
+        } else {
+          scrubLine.setAttribute('opacity', '0');
+          scrubDot.setAttribute('opacity', '0');
+          tooltip.classList.remove('visible');
+        }
+      }
+    }
+
+    /* =========================================================================
+       4. LAYOUT & DOCK CONTROLS
+       ========================================================================= */
+    initTelemetry();
+
+    const slotMinimal = document.getElementById('slot-minimal');
+    const slotIsland = document.getElementById('slot-island');
+
+    const widgetMinimal = new MmoniWidget({
+      id: 'minimal',
+      styleType: 'minimal',
+      mountEl: document.getElementById('mount-minimal'),
+      slotEl: slotMinimal
+    });
+
+    const widgetIsland = new MmoniWidget({
+      id: 'island',
+      styleType: 'island',
+      mountEl: document.getElementById('mount-island'),
+      slotEl: slotIsland
+    });
+
+    const widgets = [widgetMinimal, widgetIsland];
+
+    function resetPositions() {
+      widgets.forEach((w) => {
+        w.isCustomPositioned = false;
+      });
+
+      if (appState.mode === 'compare') {
+        slotMinimal.style.top = '64px';
+        slotMinimal.style.left = 'calc(50% - 196px)';
+        slotMinimal.style.transform = 'translateX(-50%)';
+
+        slotIsland.style.top = '64px';
+        slotIsland.style.left = 'calc(50% + 196px)';
+        slotIsland.style.transform = 'translateX(-50%)';
+      } else {
+        [slotMinimal, slotIsland].forEach((slot) => {
+          slot.style.top = '5px';
+          slot.style.left = '50%';
+          slot.style.transform = 'translateX(-50%)';
+        });
+      }
+    }
+
+    function applyMode(mode) {
+      appState.mode = mode;
+      document.body.classList.toggle('mode-compare', mode === 'compare');
+
+      slotMinimal.classList.toggle('hidden', mode === 'island');
+      slotIsland.classList.toggle('hidden', mode === 'minimal');
+
+      resetPositions();
+
+      // Auto-expand both when entering compare mode for immediate inspection
+      if (mode === 'compare') {
+        widgetMinimal.setExpanded(true);
+        widgetIsland.setExpanded(true);
+      }
+
+      document.querySelectorAll('[data-mode]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.mode === mode);
+      });
+    }
+
+    function syncToggleAllButton() {
+      const visibleWidgets = appState.mode === 'minimal' ? [widgetMinimal]
+        : appState.mode === 'island' ? [widgetIsland]
+        : widgets;
+      const allExpanded = visibleWidgets.every((w) => w.expanded);
+      document.getElementById('btn-toggle-all').textContent = allExpanded ? 'Collapse' : 'Expand';
+    }
+
+    // Bind Mode buttons
+    document.querySelectorAll('[data-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => applyMode(btn.dataset.mode));
+    });
+
+    // Bind Thermal Simulator buttons
+    document.querySelectorAll('[data-thermal]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        appState.thermal = btn.dataset.thermal;
+        document.querySelectorAll('[data-thermal]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.thermal === appState.thermal);
+        });
+        // Immediate step for snappy feedback
+        stepTelemetry();
+        widgets.forEach((w) => w.update());
+      });
+    });
+
+    // Bind Backdrop buttons
+    document.querySelectorAll('[data-bg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        appState.bg = btn.dataset.bg;
+        document.querySelectorAll('[data-bg]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.bg === appState.bg);
+        });
+        document.querySelectorAll('.bg-layer').forEach((layer) => {
+          layer.classList.toggle('active', layer.id === `bg-${appState.bg}`);
+        });
+      });
+    });
+
+    // Quick Actions
+    document.getElementById('btn-toggle-all').addEventListener('click', () => {
+      const visibleWidgets = appState.mode === 'minimal' ? [widgetMinimal]
+        : appState.mode === 'island' ? [widgetIsland]
+        : widgets;
+      const shouldExpand = !visibleWidgets.every((w) => w.expanded);
+      visibleWidgets.forEach((w) => w.setExpanded(shouldExpand));
+      syncToggleAllButton();
+    });
+
+    const btnPause = document.getElementById('btn-pause');
+    btnPause.addEventListener('click', () => {
+      appState.paused = !appState.paused;
+      btnPause.textContent = appState.paused ? 'Resume 1s' : 'Pause 1s';
+      btnPause.classList.toggle('active', appState.paused);
+      widgets.forEach((w) => w.update());
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', resetPositions);
+
+    // Hide hint badge after first interaction
+    window.addEventListener('pointerdown', () => {
+      document.getElementById('stage-badge').classList.remove('visible');
+    }, { once: true });
+
+    // Live 1-second telemetry loop
+    setInterval(() => {
+      if (appState.paused) return;
+      stepTelemetry();
+      widgets.forEach((w) => w.update());
+    }, 1000);
+  </script>
+</body>
+</html>
