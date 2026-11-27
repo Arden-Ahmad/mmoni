@@ -95,7 +95,20 @@ public:
     static std::wstring compute_warning_text(const SensorSnapshot* snapshot, bool elevated);
 
 private:
+    struct ThermalAccent {
+        D2D1_COLOR_F color;
+        float heat; // 0.0 = cool, 0.5 = warm, 1.0 = hot
+    };
+
     void draw_shadow(ID2D1DeviceContext* dc, const D2D1_RECT_F& rect, float radius, bool is_glass, IslandState state) const;
+    void draw_acrylic_grain(ID2D1DeviceContext* dc, const D2D1_RECT_F& rect, float opacity) const;
+    void draw_curved_double_rim(ID2D1DeviceContext* dc, const OverlayRenderState& st, VisualTheme theme) const;
+    void draw_glass_border(
+        ID2D1DeviceContext* dc,
+        const OverlayRenderState& st,
+        VisualTheme theme,
+        const ThermalAccent& cpu_accent,
+        const ThermalAccent& gpu_accent) const;
     void draw_minimal(ID2D1DeviceContext* dc, const OverlayRenderState& st) const;
     void draw_peek(ID2D1DeviceContext* dc, const OverlayRenderState& st) const;
     void draw_dashboard(ID2D1DeviceContext* dc, const OverlayRenderState& st, const DashboardLayout& lay) const;
@@ -117,10 +130,13 @@ private:
         bool tabular = true) const;
 
     D2D1_COLOR_F thermal_color(const std::optional<float>& temp, bool is_gpu, const UserSettings& s) const noexcept;
+    ThermalAccent thermal_edge_accent(const std::optional<float>& temp, bool is_gpu, bool sleeping, const UserSettings& s) const noexcept;
     std::wstring format_metric(const std::optional<float>& v, Metric m) const;
     std::wstring format_secondary(const std::optional<ProcessorReading>& r, CollapsedDisplayMode mode) const;
 
     D2DContext* ctx_ = nullptr;
+    mutable Microsoft::WRL::ComPtr<ID2D1Bitmap> noise_bitmap_;
+    mutable Microsoft::WRL::ComPtr<ID2D1BitmapBrush> noise_brush_;
 
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_caption_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_pill_temp_;

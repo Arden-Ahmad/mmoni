@@ -169,7 +169,7 @@ void HistoryChart::draw(ID2D1DeviceContext* dc, ID2D1Factory1* factory, const D2
     const float full_h = bounds.bottom - bounds.top;
     if (full_w <= 6.0f || full_h <= 6.0f) return;
 
-    const bool is_glass = (theme_ == VisualTheme::LiquidGlass);
+    const bool is_glass = is_glass_theme(theme_);
     const float pad_x = 2.0f;
     const float pad_top = 8.0f;
     const float pad_bottom = 6.0f;

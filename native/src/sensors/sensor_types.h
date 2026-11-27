@@ -25,8 +25,14 @@ enum class TimeRange : int {
 
 enum class VisualTheme : uint8_t {
     LiquidGlass = 0,
-    PrecisionDark = 1
+    PrecisionDark = 1,
+    FluentAcrylic = 2,
+    ChromaticPrism = 3
 };
+
+constexpr bool is_glass_theme(VisualTheme theme) noexcept {
+    return theme != VisualTheme::PrecisionDark;
+}
 
 enum class ChartLayoutMode : uint8_t {
     Split = 0,

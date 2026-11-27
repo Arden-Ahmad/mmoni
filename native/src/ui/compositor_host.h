@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sensors/sensor_types.h"
 #include "ui/d2d_context.h"
 
 #include <windows.h>
@@ -28,8 +29,16 @@ public:
 
     RenderStatus resize_surface(int pixel_width, int pixel_height, float dpi_x, float dpi_y);
 
-    // Positions & clips the optional Win11 HostBackdropBrush behind the exact active rounded chrome rect.
-    void update_backdrop(bool visible, float left_px, float top_px, float width_px, float height_px, float radius_px);
+    // Positions, clips, and tunes the native Win11 DWM blurred+saturated HostBackdropBrush behind the active chrome rect.
+    void update_backdrop(
+        bool visible,
+        VisualTheme theme,
+        float dpi_scale,
+        float left_px,
+        float top_px,
+        float width_px,
+        float height_px,
+        float radius_px);
 
     // Begins a retained Direct2D draw pass into the DirectComposition surface and checks EndDraw HRESULT.
     RenderStatus render(const std::function<void(ID2D1DeviceContext*, float dpi_x, float dpi_y)>& draw_fn);

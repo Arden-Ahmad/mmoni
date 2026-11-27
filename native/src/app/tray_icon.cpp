@@ -104,6 +104,10 @@ void TrayIcon::show_context_menu(
     HMENU theme_menu = CreatePopupMenu();
     AppendMenuW(theme_menu, MF_STRING | (settings.theme == VisualTheme::LiquidGlass ? MF_CHECKED : 0),
                 static_cast<UINT>(TrayCommand::ThemeLiquidGlass), L"Liquid Glass (Blur)");
+    AppendMenuW(theme_menu, MF_STRING | (settings.theme == VisualTheme::FluentAcrylic ? MF_CHECKED : 0),
+                static_cast<UINT>(TrayCommand::ThemeFluentAcrylic), L"Fluent Acrylic (Win11)");
+    AppendMenuW(theme_menu, MF_STRING | (settings.theme == VisualTheme::ChromaticPrism ? MF_CHECKED : 0),
+                static_cast<UINT>(TrayCommand::ThemeChromaticPrism), L"Chromatic Prism (Iridescent)");
     AppendMenuW(theme_menu, MF_STRING | (settings.theme == VisualTheme::PrecisionDark ? MF_CHECKED : 0),
                 static_cast<UINT>(TrayCommand::ThemePrecisionDark), L"Precision Dark (No Blur)");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(theme_menu), L"Visual style");

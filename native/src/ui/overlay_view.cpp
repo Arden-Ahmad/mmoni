@@ -20,6 +20,8 @@ constexpr double kDashboardWidth = 368.0;
 constexpr double kDashboardBaseHeight = 262.0;
 constexpr double kDashboardBannerExtraHeight = 28.0;
 constexpr double kStageMaxHeight = kDashboardBaseHeight + kDashboardBannerExtraHeight;
+// Preserve text contrast over bright windows while click-through is active.
+constexpr float kClickThroughOpacity = 0.97f;
 
 constexpr UINT_PTR kTimerHover = 1;
 constexpr UINT_PTR kTimerAnim = 3;
@@ -138,12 +140,12 @@ double OverlayView::minimal_width() const noexcept {
     switch (settings_.collapsed_mode) {
         case CollapsedDisplayMode::TempOnly: return 138.0;
         case CollapsedDisplayMode::TempLoad: return 204.0;
-        default: return settings_.theme == VisualTheme::LiquidGlass ? 228.0 : 224.0;
+        default: return is_glass_theme(settings_.theme) ? 228.0 : 224.0;
     }
 }
 
 double OverlayView::minimal_height() const noexcept {
-    return settings_.theme == VisualTheme::LiquidGlass ? 28.0 : 26.0;
+    return is_glass_theme(settings_.theme) ? 28.0 : 26.0;
 }
 
 double OverlayView::minimal_radius() const noexcept {
@@ -151,11 +153,19 @@ double OverlayView::minimal_radius() const noexcept {
 }
 
 double OverlayView::peek_radius() const noexcept {
-    return settings_.theme == VisualTheme::LiquidGlass ? 18.0 : 11.0;
+    switch (settings_.theme) {
+        case VisualTheme::PrecisionDark: return 11.0;
+        case VisualTheme::FluentAcrylic: return 15.0;
+        default: return 18.0;
+    }
 }
 
 double OverlayView::dashboard_radius() const noexcept {
-    return settings_.theme == VisualTheme::LiquidGlass ? 20.0 : 12.0;
+    switch (settings_.theme) {
+        case VisualTheme::PrecisionDark: return 12.0;
+        case VisualTheme::FluentAcrylic: return 16.0;
+        default: return 20.0;
+    }
 }
 
 double OverlayView::current_dashboard_height() const noexcept {
@@ -226,7 +236,7 @@ bool OverlayView::create(HINSTANCE instance) {
     }
 
     hover_timer_ = CreateThreadpoolTimer(&OverlayView::on_hover_timer, this, nullptr);
-    compositor_.set_opacity(settings_.click_through ? 0.78f : 1.0f);
+    compositor_.set_opacity(settings_.click_through ? kClickThroughOpacity : 1.0f);
     place_overlay();
     return true;
 }
@@ -280,7 +290,7 @@ bool OverlayView::recover_graphics_device(bool force) {
         return false;
     }
 
-    compositor_.set_opacity(settings_.click_through ? 0.78f : 1.0f);
+    compositor_.set_opacity(settings_.click_through ? kClickThroughOpacity : 1.0f);
     const int stage_w = placement_.stage_window.right - placement_.stage_window.left;
     const int stage_h = placement_.stage_window.bottom - placement_.stage_window.top;
     if (stage_w > 0 && stage_h > 0) {
@@ -420,7 +430,7 @@ void OverlayView::apply_settings(const UserSettings& updated) {
             transition_to(IslandState::Minimal);
         }
         OverlayWindowHelper::set_click_through(hwnd_, settings_.click_through);
-        compositor_.set_opacity(settings_.click_through ? 0.78f : 1.0f);
+        compositor_.set_opacity(settings_.click_through ? kClickThroughOpacity : 1.0f);
     }
 
     if (auto_exp_changed && !settings_.auto_expand_on_hover) {
@@ -659,7 +669,7 @@ void OverlayView::transition_to(IslandState next, bool immediate) {
         return;
     }
 
-    const bool is_glass = (settings_.theme == VisualTheme::LiquidGlass);
+    const bool is_glass = is_glass_theme(settings_.theme);
     morph_expanding_ = static_cast<int>(next) > static_cast<int>(prev);
     morph_duration_ms_ = morph_expanding_ ? (is_glass ? 255.0 : 180.0) : (is_glass ? 195.0 : 160.0);
     morph_start_ms_ = now_ms();
@@ -689,7 +699,7 @@ void OverlayView::tick_animations() {
     }
 
     const double now = now_ms();
-    const bool is_glass = (settings_.theme == VisualTheme::LiquidGlass);
+    const bool is_glass = is_glass_theme(settings_.theme);
     // Keep some motion after a stalled frame, including the first frame of a transition.
     const double frame_floor = now - kMaxAnimationGapMs;
     if (morph_animating_) {
@@ -757,9 +767,11 @@ void OverlayView::render_now() {
 
     const float dx = static_cast<float>(placement_.dpi_scale_x);
     const float dy = static_cast<float>(placement_.dpi_scale_y);
-    const bool show_backdrop = visible_ && (settings_.theme == VisualTheme::LiquidGlass);
+    const bool show_backdrop = visible_ && is_glass_theme(settings_.theme);
     compositor_.update_backdrop(
         show_backdrop,
+        settings_.theme,
+        dx,
         cur_chrome_rect_.left * dx,
         cur_chrome_rect_.top * dy,
         (cur_chrome_rect_.right - cur_chrome_rect_.left) * dx,
@@ -801,6 +813,8 @@ void OverlayView::render_now() {
     if (status == RenderStatus::DeviceLost && recover_graphics_device()) {
         compositor_.update_backdrop(
             show_backdrop,
+            settings_.theme,
+            dx,
             cur_chrome_rect_.left * dx,
             cur_chrome_rect_.top * dy,
             (cur_chrome_rect_.right - cur_chrome_rect_.left) * dx,
@@ -841,7 +855,7 @@ void OverlayView::handle_click(HitRegion region) {
         thumb_from_ = cur_thumb_pos_;
         thumb_to_ = static_cast<float>(static_cast<int>(m));
         thumb_start_ms_ = now_ms();
-        thumb_duration_ms_ = (settings_.theme == VisualTheme::LiquidGlass) ? 230.0 : 160.0;
+        thumb_duration_ms_ = is_glass_theme(settings_.theme) ? 230.0 : 160.0;
         thumb_animating_ = true;
         refresh_chart_stats();
         start_vsync_pacer();

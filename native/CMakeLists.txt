@@ -80,6 +80,7 @@ target_link_libraries(Mmoni PRIVATE
     d2d1
     d3d11
     dxgi
+    dxguid
     dwrite
     pdh
     cfgmgr32
@@ -164,5 +165,5 @@ target_link_options(MmoniBench PRIVATE
     /MANIFEST:NO /SUBSYSTEM:WINDOWS $<$<CONFIG:Release>:/LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO>
 )
 target_link_libraries(MmoniBench PRIVATE
-    user32 gdi32 shell32 advapi32 ole32 oleaut32 comctl32 shcore dwmapi dcomp d2d1 d3d11 dxgi dwrite pdh cfgmgr32 wtsapi32 powrprof taskschd windowsapp
+    user32 gdi32 shell32 advapi32 ole32 oleaut32 comctl32 shcore dwmapi dcomp d2d1 d3d11 dxgi dxguid dwrite pdh cfgmgr32 wtsapi32 powrprof taskschd windowsapp
 )

@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blur Materials Studio — Interactive UI Playground</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            studio: {
+              bg: '#0B0C0F',
+              panel: '#12141A',
+              card: '#191C24',
+              border: '#262A36',
+              accent: '#6366F1',
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background-color: #0B0C0F;
+      color: #F3F4F6;
+      overflow-x: hidden;
+    }
+
+    /* Custom sleek scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.28);
+    }
+
+    /* Custom Range Sliders (Figma-like) */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      background: #262A36;
+      border-radius: 999px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 2px solid #6366F1;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+      transition: transform 0.12s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.18);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 2px solid #6366F1;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Animated Stage Background Orbs */
+    @keyframes floatSlow1 {
+      0%, 100% { transform: translate(0px, 0px) scale(1); }
+      33% { transform: translate(45px, -35px) scale(1.08); }
+      66% { transform: translate(-30px, 30px) scale(0.95); }
+    }
+    @keyframes floatSlow2 {
+      0%, 100% { transform: translate(0px, 0px) scale(1); }
+      33% { transform: translate(-50px, 40px) scale(1.06); }
+      66% { transform: translate(35px, -25px) scale(0.94); }
+    }
+    @keyframes floatSlow3 {
+      0%, 100% { transform: translate(0px, 0px) rotate(0deg); }
+      50% { transform: translate(30px, 45px) rotate(12deg); }
+    }
+
+    .animate-bg .orb-1 { animation: floatSlow1 11s ease-in-out infinite; }
+    .animate-bg .orb-2 { animation: floatSlow2 13s ease-in-out infinite; }
+    .animate-bg .orb-3 { animation: floatSlow3 15s ease-in-out infinite; }
+
+    /* Draggable Preview Card Base */
+    #preview-card {
+      position: absolute;
+      user-select: none;
+      touch-action: none;
+      cursor: grab;
+      will-change: transform;
+      transition: border-radius 0.15s ease;
+    }
+    #preview-card.dragging {
+      cursor: grabbing;
+    }
+
+    /* Specular Mouse-Tracking Sheen */
+    .specular-sheen {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      opacity: var(--sheen-opacity, 0.45);
+      background: radial-gradient(
+        circle 220px at var(--mouse-x, 50%) var(--mouse-y, 20%),
+        rgba(255, 255, 255, 0.38) 0%,
+        rgba(255, 255, 255, 0.08) 40%,
+        transparent 75%
+      );
+      mix-blend-mode: overlay;
+      transition: opacity 0.2s ease;
+    }
+
+    /* Noise Overlay using inline SVG data URI */
+    .noise-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 140px 140px;
+      mix-blend-mode: overlay;
+    }
+
+    /* Chromatic / Prism Edge Glow */
+    .chromatic-ring {
+      position: absolute;
+      inset: -1px;
+      pointer-events: none;
+      border-radius: inherit;
+      padding: 1.5px;
+      background: linear-gradient(
+        135deg,
+        rgba(255, 80, 140, 0.75) 0%,
+        rgba(90, 210, 255, 0.75) 35%,
+        rgba(170, 255, 130, 0.65) 65%,
+        rgba(180, 110, 255, 0.8) 100%
+      );
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    /* Progressive Blur Multi-Layer Masking */
+    .progressive-layers {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      overflow: hidden;
+    }
+    .prog-layer {
+      position: absolute;
+      inset: 0;
+    }
+
+    /* Syntax Highlighting Colors */
+    .tok-prop { color: #93C5FD; }
+    .tok-val { color: #FDE68A; }
+    .tok-fn { color: #C4B5FD; }
+    .tok-comment { color: #6B7280; font-style: italic; }
+    .tok-punct { color: #9CA3AF; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-studio-bg text-gray-100 antialiased">
+
+  <!-- Hidden SVG Filter for Liquid Glass Refraction / Optical Edge -->
+  <svg width="0" height="0" class="absolute pointer-events-none" aria-hidden="true">
+    <defs>
+      <filter id="liquid-refraction" x="-10%" y="-10%" width="120%" height="120%">
+        <feTurbulence
+          id="svg-turbulence"
+          type="fractalNoise"
+          baseFrequency="0.015 0.015"
+          numOctaves="2"
+          seed="7"
+          result="noise"
+        />
+        <feGaussianBlur in="noise" stdDeviation="3" result="softNoise" />
+        <feDisplacementMap
+          id="svg-displacement"
+          in="SourceGraphic"
+          in2="softNoise"
+          scale="18"
+          xChannelSelector="R"
+          yChannelSelector="G"
+        />
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Top Header Bar -->
+  <header class="h-14 border-b border-studio-border bg-studio-panel/90 backdrop-blur-md px-4 lg:px-6 flex items-center justify-between sticky top-0 z-30">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-sm font-bold tracking-tight text-white leading-tight">Blur Materials Studio</h1>
+        <p class="text-[11px] text-gray-400 hidden sm:block">Interactive UI Playground — Liquid Glass, Mica, Acrylic &amp; lainnya</p>
+      </div>
+    </div>
+
+    <!-- Preset Quick Pills (Desktop scrollable) -->
+    <div class="hidden xl:flex items-center gap-1 bg-studio-bg/80 p-1 rounded-xl border border-studio-border" id="header-preset-bar">
+      <!-- Populated via JS -->
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button id="btn-center-card" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-studio-card hover:bg-gray-800 border border-studio-border text-gray-200 transition flex items-center gap-1.5" title="Kembalikan posisi kartu ke tengah">
+        <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v4m0 12v4M2 12h4m12 0h4" />
+        </svg>
+        <span>Center</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Workspace: Canvas Stage + Right Inspector -->
+  <div class="flex-1 flex flex-col lg:flex-row min-h-[calc(100vh-3.5rem)]">
+
+    <!-- LEFT / MAIN: Interactive Stage Area -->
+    <main class="flex-1 flex flex-col relative min-h-[540px] lg:min-h-0">
+
+      <!-- Stage Top Toolbar -->
+      <div class="px-4 py-2.5 border-b border-studio-border bg-studio-panel/60 flex flex-wrap items-center justify-between gap-2 z-20">
+        <!-- Background Selector -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mr-1">Stage:</span>
+          <button data-bg="mesh" class="bg-btn px-2.5 py-1 rounded-lg text-xs font-medium transition">Vibrant Mesh</button>
+          <button data-bg="ui" class="bg-btn px-2.5 py-1 rounded-lg text-xs font-medium transition">UI &amp; Typography</button>
+          <button data-bg="neon" class="bg-btn px-2.5 py-1 rounded-lg text-xs font-medium transition">Dark Neon</button>
+          <button data-bg="light" class="bg-btn px-2.5 py-1 rounded-lg text-xs font-medium transition">Light Wallpaper</button>
+        </div>
+
+        <!-- Card Layout Switcher + Animate Toggle -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <div class="flex items-center bg-studio-bg rounded-lg p-0.5 border border-studio-border">
+            <button data-layout="widget" class="layout-btn px-2.5 py-1 rounded-md text-xs font-medium transition">UI Widget</button>
+            <button data-layout="dock" class="layout-btn px-2.5 py-1 rounded-md text-xs font-medium transition">Floating Dock</button>
+            <button data-layout="progressive" class="layout-btn px-2.5 py-1 rounded-md text-xs font-medium transition">Progressive Overlay</button>
+          </div>
+
+          <button id="btn-animate-bg" class="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 transition flex items-center gap-1.5">
+            <span id="animate-dot" class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+            <span>Animate BG</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Mobile / Tablet Preset Bar -->
+      <div class="xl:hidden px-4 py-2 border-b border-studio-border bg-studio-panel/40 overflow-x-auto flex items-center gap-1.5" id="mobile-preset-bar">
+        <!-- Populated via JS -->
+      </div>
+
+      <!-- Interactive Stage Viewport -->
+      <div id="stage" class="relative flex-1 overflow-hidden select-none animate-bg">
+
+        <!-- BACKGROUND 1: Vibrant Mesh -->
+        <div id="bg-mesh" class="stage-bg absolute inset-0 bg-[#0D1021] overflow-hidden">
+          <div class="orb-1 absolute -top-24 -left-20 w-[440px] h-[440px] rounded-full bg-gradient-to-br from-fuchsia-500 via-purple-600 to-indigo-600 opacity-85 blur-2xl"></div>
+          <div class="orb-2 absolute top-1/3 -right-24 w-[480px] h-[480px] rounded-full bg-gradient-to-tr from-cyan-400 via-blue-500 to-indigo-600 opacity-80 blur-2xl"></div>
+          <div class="orb-3 absolute -bottom-28 left-1/4 w-[420px] h-[420px] rounded-full bg-gradient-to-tr from-amber-400 via-orange-500 to-rose-500 opacity-80 blur-2xl"></div>
+          <!-- Crisp geometric shapes to test refraction & blur -->
+          <div class="orb-2 absolute top-16 right-1/4 w-36 h-36 rounded-3xl rotate-12 bg-gradient-to-br from-white/40 to-cyan-300/30 border border-white/30"></div>
+          <div class="orb-1 absolute bottom-24 left-16 w-28 h-28 rounded-full bg-gradient-to-tr from-yellow-300 to-pink-500 shadow-2xl"></div>
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-25">
+            <span class="text-[11vw] font-extrabold tracking-tighter text-white select-none">OPTICS</span>
+          </div>
+        </div>
+
+        <!-- BACKGROUND 2: UI & Typography -->
+        <div id="bg-ui" class="stage-bg hidden absolute inset-0 bg-[#11131C] overflow-hidden p-6 sm:p-10">
+          <!-- Subtle grid -->
+          <div class="absolute inset-0 opacity-20" style="background-image: linear-gradient(to right, #374151 1px, transparent 1px), linear-gradient(to bottom, #374151 1px, transparent 1px); background-size: 36px 36px;"></div>
+          <div class="relative z-0 max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-4 opacity-95">
+            <div class="sm:col-span-2 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-2xl p-6 text-white shadow-xl">
+              <span class="text-xs font-semibold uppercase tracking-widest text-indigo-200">Typography &amp; Legibility Test</span>
+              <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight mt-2 leading-tight">Geser kartu kaca di atas teks &amp; ikon ini.</h2>
+              <p class="text-sm text-indigo-100 mt-2">Lihat bagaimana saturasi, blur radius, dan refraksi mempengaruhi keterbacaan elemen UI di belakangnya.</p>
+            </div>
+            <div class="bg-[#1C2030] border border-gray-700/60 rounded-2xl p-5 flex flex-col justify-between">
+              <div class="grid grid-cols-3 gap-2.5">
+                <div class="aspect-square rounded-xl bg-gradient-to-br from-rose-500 to-orange-400"></div>
+                <div class="aspect-square rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600"></div>
+                <div class="aspect-square rounded-xl bg-gradient-to-br from-sky-400 to-blue-600"></div>
+                <div class="aspect-square rounded-xl bg-gradient-to-br from-amber-400 to-yellow-500"></div>
+                <div class="aspect-square rounded-xl bg-gradient-to-br from-fuchsia-500 to-purple-600"></div>
+                <div class="aspect-square rounded-xl bg-gradient-to-br from-cyan-300 to-indigo-500"></div>
+              </div>
+              <p class="text-xs text-gray-400 mt-3 font-mono">60fps Backdrop Test</p>
+            </div>
+            <div class="bg-[#1C2030] border border-gray-700/60 rounded-2xl p-5">
+              <div class="text-xs text-emerald-400 font-semibold">REVENUE +24.8%</div>
+              <div class="text-2xl font-bold text-white mt-1">Rp 148.500.000</div>
+              <div class="mt-3 flex items-end gap-1.5 h-16">
+                <div class="flex-1 bg-emerald-500/40 rounded-t h-1/3"></div>
+                <div class="flex-1 bg-emerald-500/60 rounded-t h-2/3"></div>
+                <div class="flex-1 bg-emerald-500/80 rounded-t h-1/2"></div>
+                <div class="flex-1 bg-emerald-400 rounded-t h-full"></div>
+                <div class="flex-1 bg-cyan-400 rounded-t h-4/5"></div>
+              </div>
+            </div>
+            <div class="sm:col-span-2 bg-gradient-to-r from-rose-500 via-amber-500 to-emerald-500 rounded-2xl p-6 text-white flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold uppercase tracking-wider opacity-90">Color Spectrum Bar</div>
+                <div class="text-xl font-extrabold mt-1">Vibrant Saturation &amp; Chromatic Edge</div>
+              </div>
+              <div class="w-14 h-14 rounded-full bg-white/25 border-2 border-white/60 flex items-center justify-center font-bold text-lg">Aa</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- BACKGROUND 3: Dark Neon -->
+        <div id="bg-neon" class="stage-bg hidden absolute inset-0 bg-[#05060A] overflow-hidden">
+          <div class="orb-1 absolute top-10 left-1/4 w-72 h-72 rounded-full bg-cyan-500/40 blur-3xl"></div>
+          <div class="orb-2 absolute bottom-10 right-1/4 w-80 h-80 rounded-full bg-fuchsia-600/40 blur-3xl"></div>
+          <div class="orb-3 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full bg-amber-500/30 blur-3xl"></div>
+          <!-- Neon crisp rings -->
+          <div class="orb-2 absolute top-1/4 left-16 w-44 h-44 rounded-full border-4 border-cyan-400 shadow-[0_0_40px_rgba(34,211,238,0.65)]"></div>
+          <div class="orb-1 absolute bottom-1/4 right-20 w-48 h-48 rounded-3xl rotate-45 border-4 border-fuchsia-500 shadow-[0_0_45px_rgba(217,70,239,0.65)]"></div>
+          <div class="orb-3 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-2 bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-amber-400 rounded-full shadow-[0_0_30px_rgba(244,114,182,0.8)]"></div>
+        </div>
+
+        <!-- BACKGROUND 4: Light Wallpaper (Ideal for Mica & Light Frosted) -->
+        <div id="bg-light" class="stage-bg hidden absolute inset-0 bg-[#EEF2FF] overflow-hidden">
+          <div class="orb-1 absolute -top-24 -left-16 w-[480px] h-[480px] rounded-full bg-gradient-to-br from-sky-300 via-indigo-200 to-purple-200 opacity-90 blur-2xl"></div>
+          <div class="orb-2 absolute bottom-0 -right-16 w-[520px] h-[520px] rounded-full bg-gradient-to-tl from-rose-200 via-amber-100 to-teal-200 opacity-90 blur-2xl"></div>
+          <div class="orb-3 absolute top-1/3 left-1/3 w-72 h-72 rounded-full bg-gradient-to-tr from-blue-400/50 to-violet-400/50 blur-xl"></div>
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div class="text-center opacity-40">
+              <div class="text-6xl sm:text-8xl font-extrabold tracking-tighter text-indigo-950">FLUENT</div>
+              <div class="text-sm font-semibold tracking-widest uppercase text-indigo-800 mt-1">Light Wallpaper Surface</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hint Badge -->
+        <div class="absolute bottom-3 left-3 z-10 pointer-events-none px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/10 text-[11px] text-gray-200 flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-indigo-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" />
+          </svg>
+          <span>Drag kartu ke mana aja buat cek interaksi blur</span>
+        </div>
+
+        <!-- DRAGGABLE INTERACTIVE PREVIEW CARD -->
+        <div id="preview-card" class="z-20">
+          <!-- Optical / Glass Surface Layers -->
+          <div id="glass-surface" class="relative overflow-hidden transition-shadow duration-200">
+            <!-- Progressive Blur Stacked Layers (Active in Progressive preset or Progressive Overlay layout) -->
+            <div id="progressive-layers" class="progressive-layers hidden">
+              <div class="prog-layer" data-step="1"></div>
+              <div class="prog-layer" data-step="2"></div>
+              <div class="prog-layer" data-step="3"></div>
+              <div class="prog-layer" data-step="4"></div>
+            </div>
+
+            <!-- Procedural Grain / Noise Layer -->
+            <div id="noise-layer" class="noise-layer"></div>
+
+            <!-- Dynamic Specular Sheen (Mouse Tracking) -->
+            <div id="specular-sheen" class="specular-sheen"></div>
+
+            <!-- Chromatic / Prism Iridescent Edge -->
+            <div id="chromatic-ring" class="chromatic-ring"></div>
+
+            <!-- CARD CONTENT CONTAINER -->
+            <div id="card-content" class="relative z-10">
+
+              <!-- LAYOUT 1: UI Widget (Media / Control Card) -->
+              <div id="layout-widget" class="w-[310px] sm:w-[350px] p-5">
+                <div class="flex items-center justify-between mb-4">
+                  <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
+                      <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <div id="widget-badge" class="text-[10px] font-bold uppercase tracking-wider opacity-75">Liquid Glass</div>
+                      <div class="text-sm font-bold leading-tight">Midnight Optics</div>
+                      <div class="text-xs opacity-70">Design Systems FM</div>
+                    </div>
+                  </div>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/15 border border-white/20">LIVE</span>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="space-y-1.5 mb-4">
+                  <div class="h-1.5 w-full rounded-full bg-current/15 overflow-hidden">
+                    <div class="h-full w-2/3 rounded-full bg-current opacity-85"></div>
+                  </div>
+                  <div class="flex justify-between text-[10px] font-mono opacity-65">
+                    <span>2:14</span>
+                    <span>3:42</span>
+                  </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="flex items-center justify-between pt-1">
+                  <button type="button" class="p-2 rounded-xl hover:bg-white/15 transition" aria-label="Previous">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                  </button>
+                  <button type="button" class="w-10 h-10 rounded-full bg-white/25 hover:bg-white/35 border border-white/30 flex items-center justify-center transition shadow-sm" aria-label="Play">
+                    <svg class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                  </button>
+                  <button type="button" class="p-2 rounded-xl hover:bg-white/15 transition" aria-label="Next">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                  </button>
+                  <div class="h-5 w-px bg-current opacity-15"></div>
+                  <div class="flex items-center gap-1.5 text-xs font-medium opacity-85">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+                    </svg>
+                    <span>78%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- LAYOUT 2: Floating Dock -->
+              <div id="layout-dock" class="hidden px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-lg hover:scale-110 transition cursor-pointer">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                  </div>
+                  <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg hover:scale-110 transition cursor-pointer">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+                  </div>
+                  <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-fuchsia-500 to-purple-600 flex items-center justify-center shadow-lg hover:scale-110 transition cursor-pointer">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                  </div>
+                  <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg hover:scale-110 transition cursor-pointer">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+                  </div>
+                  <div class="w-px h-8 bg-current opacity-20 mx-0.5"></div>
+                  <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center shadow-lg hover:scale-110 transition cursor-pointer">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                  </div>
+                </div>
+              </div>
+
+              <!-- LAYOUT 3: Progressive Overlay (Scrollable Feed Demo) -->
+              <div id="layout-progressive" class="hidden w-[320px] sm:w-[360px] h-[360px] relative overflow-hidden">
+                <!-- Scrollable inner content -->
+                <div class="h-full overflow-y-auto px-4 py-14 space-y-3" id="prog-scroll-area">
+                  <div class="p-3.5 rounded-2xl bg-white/15 border border-white/15">
+                    <div class="text-xs font-bold">01. Progressive / Variable Blur</div>
+                    <p class="text-[11px] opacity-80 mt-1">Scroll konten ini ke atas &amp; bawah untuk melihat transisi blur halus dari 0px ke full blur di tepi atas dan bawah.</p>
+                  </div>
+                  <div class="p-3.5 rounded-2xl bg-gradient-to-r from-indigo-500/40 to-cyan-500/40 border border-white/15">
+                    <div class="text-xs font-bold">02. iOS &amp; Framer Header</div>
+                    <p class="text-[11px] opacity-80 mt-1">Teknik ini menumpuk beberapa layer backdrop-filter dengan CSS mask-image linear-gradient.</p>
+                  </div>
+                  <div class="p-3.5 rounded-2xl bg-gradient-to-r from-rose-500/40 to-amber-500/40 border border-white/15">
+                    <div class="text-xs font-bold">03. Tanpa Garis Potong Kasar</div>
+                    <p class="text-[11px] opacity-80 mt-1">Hasilnya jauh lebih natural dibanding header blur biasa yang punya batas tepi tajam.</p>
+                  </div>
+                  <div class="p-3.5 rounded-2xl bg-white/15 border border-white/15">
+                    <div class="text-xs font-bold">04. Responsive &amp; 60fps</div>
+                    <p class="text-[11px] opacity-80 mt-1">Tetap mulus di Safari &amp; Chrome modern dengan prefix -webkit-backdrop-filter.</p>
+                  </div>
+                </div>
+
+                <!-- Top Progressive Blur Cap -->
+                <div class="prog-cap-top absolute top-0 inset-x-0 h-16 pointer-events-none">
+                  <div class="absolute inset-0" style="backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); mask-image: linear-gradient(to bottom, black 50%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);"></div>
+                  <div class="absolute inset-0" style="backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); mask-image: linear-gradient(to bottom, black 25%, transparent 80%); -webkit-mask-image: linear-gradient(to bottom, black 25%, transparent 80%);"></div>
+                  <div class="absolute inset-x-0 top-0 px-4 pt-3 flex items-center justify-between text-xs font-bold">
+                    <span>Progressive Header</span>
+                    <span class="text-[10px] opacity-70 font-mono">0px → Max</span>
+                  </div>
+                </div>
+
+                <!-- Bottom Progressive Blur Cap -->
+                <div class="prog-cap-bottom absolute bottom-0 inset-x-0 h-16 pointer-events-none">
+                  <div class="absolute inset-0" style="backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); mask-image: linear-gradient(to top, black 50%, transparent 100%); -webkit-mask-image: linear-gradient(to top, black 50%, transparent 100%);"></div>
+                  <div class="absolute inset-0" style="backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); mask-image: linear-gradient(to top, black 25%, transparent 80%); -webkit-mask-image: linear-gradient(to top, black 25%, transparent 80%);"></div>
+                  <div class="absolute inset-x-0 bottom-0 px-4 pb-2.5 text-center text-[10px] opacity-75">
+                    Scroll di dalam kartu ↑↓
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT SIDEBAR: Figma-style Real-Time Inspector -->
+    <aside class="w-full lg:w-[370px] xl:w-[390px] border-t lg:border-t-0 lg:border-l border-studio-border bg-studio-panel flex flex-col lg:max-h-[calc(100vh-3.5rem)] lg:overflow-y-auto">
+
+      <!-- Active Preset Info Card -->
+      <div class="p-4 border-b border-studio-border">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <span id="preset-tag" class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Apple</span>
+            <h2 id="preset-title" class="text-base font-bold text-white">Liquid Glass</h2>
+          </div>
+          <button id="btn-reset" class="text-xs text-gray-400 hover:text-white px-2 py-1 rounded-md hover:bg-studio-card transition flex items-center gap-1" title="Reset ke default preset">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>Reset</span>
+          </button>
+        </div>
+        <p id="preset-desc" class="text-xs text-gray-400 leading-relaxed">
+          Material optik khas iOS/macOS terbaru dengan refraksi tepi, specular rim highlight berlapis, dan pantulan cahaya dinamis saat kursor bergerak.
+        </p>
+      </div>
+
+      <!-- Real-Time Sliders -->
+      <div class="p-4 space-y-4 border-b border-studio-border">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Material Properties</div>
+
+        <!-- Blur Radius -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs">
+            <label for="ctrl-blur" class="text-gray-300 font-medium">Blur Radius</label>
+            <span id="val-blur" class="font-mono text-indigo-300">20px</span>
+          </div>
+          <input id="ctrl-blur" type="range" min="0" max="80" value="20" />
+        </div>
+
+        <!-- Saturation -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs">
+            <label for="ctrl-sat" class="text-gray-300 font-medium">Saturation</label>
+            <span id="val-sat" class="font-mono text-indigo-300">190%</span>
+          </div>
+          <input id="ctrl-sat" type="range" min="50" max="250" value="190" />
+        </div>
+
+        <!-- Tint Opacity -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs">
+            <label for="ctrl-tint" class="text-gray-300 font-medium">Tint Opacity</label>
+            <span id="val-tint" class="font-mono text-indigo-300">18%</span>
+          </div>
+          <input id="ctrl-tint" type="range" min="0" max="95" value="18" />
+        </div>
+
+        <!-- Tint Mode -->
+        <div class="flex items-center justify-between gap-2 pt-0.5">
+          <span class="text-xs text-gray-300 font-medium">Tint Mode</span>
+          <div class="flex items-center gap-1.5">
+            <button data-tint="light" class="tint-btn px-2.5 py-1 rounded-md text-xs font-medium border transition">Light</button>
+            <button data-tint="dark" class="tint-btn px-2.5 py-1 rounded-md text-xs font-medium border transition">Dark</button>
+            <label class="relative flex items-center cursor-pointer" title="Custom Tint Color">
+              <input id="ctrl-custom-color" type="color" value="#6366F1" class="w-7 h-7 rounded-md bg-transparent border border-studio-border cursor-pointer p-0.5" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Grain / Noise Opacity -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs">
+            <label for="ctrl-noise" class="text-gray-300 font-medium">Grain / Noise</label>
+            <span id="val-noise" class="font-mono text-indigo-300">4%</span>
+          </div>
+          <input id="ctrl-noise" type="range" min="0" max="35" value="4" />
+        </div>
+
+        <!-- Specular / Rim Highlight -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs">
+            <label for="ctrl-specular" class="text-gray-300 font-medium">Specular / Rim Highlight</label>
+            <span id="val-specular" class="font-mono text-indigo-300">85%</span>
+          </div>
+          <input id="ctrl-specular" type="range" min="0" max="100" value="85" />
+        </div>
+
+        <!-- Refraction / Distortion -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs">
+            <label for="ctrl-refraction" class="text-gray-300 font-medium">Refraction / Distortion</label>
+            <span id="val-refraction" class="font-mono text-indigo-300">18</span>
+          </div>
+          <input id="ctrl-refraction" type="range" min="0" max="40" value="18" />
+        </div>
+
+        <!-- Border Radius -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs">
+            <label for="ctrl-radius" class="text-gray-300 font-medium">Border Radius</label>
+            <span id="val-radius" class="font-mono text-indigo-300">28px</span>
+          </div>
+          <input id="ctrl-radius" type="range" min="0" max="48" value="28" />
+        </div>
+      </div>
+
+      <!-- Live CSS Code Generator -->
+      <div class="p-4 flex-1 flex flex-col">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Generated CSS</span>
+          <button id="btn-copy-css" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-1.5 shadow-sm">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <span id="copy-label">Copy CSS</span>
+          </button>
+        </div>
+        <pre id="css-output" class="bg-studio-bg border border-studio-border rounded-xl p-3.5 text-[11px] font-mono leading-relaxed overflow-x-auto text-gray-300 flex-1 min-h-[150px]"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    (function () {
+      // =========================================================
+      // 1. MATERIAL PRESETS CONFIGURATION (7 Modern Blur Styles)
+      // =========================================================
+      const PRESETS = {
+        liquid: {
+          name: 'Liquid Glass',
+          tag: 'Apple',
+          desc: 'Material optik ala Apple terbaru dengan specular rim highlight berlapis, saturasi tinggi, dan distorsi refraksi ringan yang bereaksi terhadap gerak kursor.',
+          blur: 18,
+          sat: 200,
+          tint: 16,
+          tintMode: 'light',
+          customColor: '#ffffff',
+          noise: 3,
+          specular: 90,
+          refraction: 16,
+          radius: 28,
+          chromatic: false,
+          progressive: false
+        },
+        mica: {
+          name: 'Mica',
+          tag: 'Win 11',
+          desc: 'Material khas Windows 11 Fluent Design: blur sangat berat dengan opacity tint tinggi (75–85%) agar warna wallpaper terasa lembut tanpa mengganggu fokus konten.',
+          blur: 64,
+          sat: 120,
+          tint: 80,
+          tintMode: 'dark',
+          customColor: '#1f2330',
+          noise: 5,
+          specular: 22,
+          refraction: 0,
+          radius: 16,
+          chromatic: false,
+          progressive: false
+        },
+        acrylic: {
+          name: 'Acrylic',
+          tag: 'Fluent',
+          desc: 'Blur medium-berat dengan tekstur grain/noise halus yang terlihat jelas, saturasi terangkat, serta garis tepi luminous 1px yang tajam.',
+          blur: 30,
+          sat: 165,
+          tint: 42,
+          tintMode: 'dark',
+          customColor: '#1e2230',
+          noise: 16,
+          specular: 45,
+          refraction: 0,
+          radius: 16,
+          chromatic: false,
+          progressive: false
+        },
+        frosted: {
+          name: 'Frosted / Vibrancy',
+          tag: 'macOS / iOS',
+          desc: 'Klasik macOS & iOS: keseimbangan blur (24px) dan boost saturasi tinggi (190%) untuk menjaga keterbacaan teks tetap super jernih di atas warna apa pun.',
+          blur: 24,
+          sat: 190,
+          tint: 26,
+          tintMode: 'light',
+          customColor: '#ffffff',
+          noise: 2,
+          specular: 50,
+          refraction: 0,
+          radius: 22,
+          chromatic: false,
+          progressive: false
+        },
+        glassmorphism: {
+          name: 'Glassmorphism',
+          tag: 'Figma / Web',
+          desc: 'Gaya klasik desain web & Figma: blur sedang, tint transparan rendah (15–20%), border putih tipis yang tegas, dan bayangan lembut.',
+          blur: 16,
+          sat: 130,
+          tint: 16,
+          tintMode: 'light',
+          customColor: '#ffffff',
+          noise: 0,
+          specular: 60,
+          refraction: 0,
+          radius: 20,
+          chromatic: false,
+          progressive: false
+        },
+        progressive: {
+          name: 'Progressive Blur',
+          tag: 'Variable',
+          desc: 'Transisi blur bertingkat dari 0px ke full blur menggunakan tumpukan layer mask-image linear-gradient. Populer untuk header & overlay iOS/Framer.',
+          blur: 28,
+          sat: 160,
+          tint: 14,
+          tintMode: 'dark',
+          customColor: '#0f121a',
+          noise: 2,
+          specular: 30,
+          refraction: 0,
+          radius: 24,
+          chromatic: false,
+          progressive: true
+        },
+        chromatic: {
+          name: 'Chromatic Glass',
+          tag: 'Prism',
+          desc: 'Kaca frosted dengan efek dispersi kromatik (iridescent RGB glow) di sepanjang tepi border, memberi kesan futuristik seperti prisma cahaya.',
+          blur: 20,
+          sat: 180,
+          tint: 18,
+          tintMode: 'dark',
+          customColor: '#121521',
+          noise: 4,
+          specular: 75,
+          refraction: 8,
+          radius: 24,
+          chromatic: true,
+          progressive: false
+        }
+      };
+
+      // =========================================================
+      // 2. APPLICATION STATE
+      // =========================================================
+      let activePresetKey = 'liquid';
+      let state = { ...PRESETS.liquid };
+      let activeBg = 'mesh';
+      let activeLayout = 'widget';
+      let isAnimatingBg = true;
+      let rawCssString = '';
+
+      // DOM Elements
+      const stage = document.getElementById('stage');
+      const previewCard = document.getElementById('preview-card');
+      const glassSurface = document.getElementById('glass-surface');
+      const noiseLayer = document.getElementById('noise-layer');
+      const specularSheen = document.getElementById('specular-sheen');
+      const chromaticRing = document.getElementById('chromatic-ring');
+      const progressiveLayers = document.getElementById('progressive-layers');
+      const svgDisplacement = document.getElementById('svg-displacement');
+
+      const headerPresetBar = document.getElementById('header-preset-bar');
+      const mobilePresetBar = document.getElementById('mobile-preset-bar');
+
+      const elPresetTag = document.getElementById('preset-tag');
+      const elPresetTitle = document.getElementById('preset-title');
+      const elPresetDesc = document.getElementById('preset-desc');
+      const elWidgetBadge = document.getElementById('widget-badge');
+
+      const ctrlBlur = document.getElementById('ctrl-blur');
+      const ctrlSat = document.getElementById('ctrl-sat');
+      const ctrlTint = document.getElementById('ctrl-tint');
+      const ctrlCustomColor = document.getElementById('ctrl-custom-color');
+      const ctrlNoise = document.getElementById('ctrl-noise');
+      const ctrlSpecular = document.getElementById('ctrl-specular');
+      const ctrlRefraction = document.getElementById('ctrl-refraction');
+      const ctrlRadius = document.getElementById('ctrl-radius');
+
+      const valBlur = document.getElementById('val-blur');
+      const valSat = document.getElementById('val-sat');
+      const valTint = document.getElementById('val-tint');
+      const valNoise = document.getElementById('val-noise');
+      const valSpecular = document.getElementById('val-specular');
+      const valRefraction = document.getElementById('val-refraction');
+      const valRadius = document.getElementById('val-radius');
+
+      const cssOutput = document.getElementById('css-output');
+
+      // =========================================================
+      // 3. HELPERS
+      // =========================================================
+      function hexToRgb(hex) {
+        const clean = hex.replace('#', '');
+        const num = parseInt(clean, 16);
+        return {
+          r: (num >> 16) & 255,
+          g: (num >> 8) & 255,
+          b: num & 255
+        };
+      }
+
+      function getTintRgb() {
+        if (state.tintMode === 'light') return { r: 255, g: 255, b: 255 };
+        if (state.tintMode === 'dark') return { r: 16, g: 19, b: 28 };
+        return hexToRgb(state.customColor);
+      }
+
+      function isLightSurface() {
+        const { r, g, b } = getTintRgb();
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        return luminance > 0.6 && state.tint > 35;
+      }
+
+      // =========================================================
+      // 4. RENDER PRESET BUTTONS
+      // =========================================================
+      function renderPresetButtons() {
+        headerPresetBar.innerHTML = '';
+        mobilePresetBar.innerHTML = '';
+
+        Object.entries(PRESETS).forEach(([key, preset]) => {
+          const isActive = key === activePresetKey;
+          const baseClass = isActive
+            ? 'bg-indigo-600 text-white shadow-sm'
+            : 'text-gray-400 hover:text-white hover:bg-studio-card';
+
+          const btnDesktop = document.createElement('button');
+          btnDesktop.className = `px-2.5 py-1 rounded-lg text-xs font-medium transition whitespace-nowrap ${baseClass}`;
+          btnDesktop.textContent = preset.name;
+          btnDesktop.addEventListener('click', () => selectPreset(key));
+          headerPresetBar.appendChild(btnDesktop);
+
+          const btnMobile = document.createElement('button');
+          btnMobile.className = `px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap border ${
+            isActive
+              ? 'bg-indigo-600 text-white border-indigo-500'
+              : 'bg-studio-card text-gray-300 border-studio-border'
+          }`;
+          btnMobile.textContent = preset.name;
+          btnMobile.addEventListener('click', () => selectPreset(key));
+          mobilePresetBar.appendChild(btnMobile);
+        });
+      }
+
+      function selectPreset(key) {
+        activePresetKey = key;
+        state = { ...PRESETS[key] };
+        syncControlsFromState();
+        renderPresetButtons();
+        applyMaterial();
+      }
+
+      function syncControlsFromState() {
+        const preset = PRESETS[activePresetKey];
+        elPresetTag.textContent = preset.tag;
+        elPresetTitle.textContent = preset.name;
+        elPresetDesc.textContent = preset.desc;
+        elWidgetBadge.textContent = preset.name;
+
+        ctrlBlur.value = state.blur;
+        ctrlSat.value = state.sat;
+        ctrlTint.value = state.tint;
+        ctrlCustomColor.value = state.customColor;
+        ctrlNoise.value = state.noise;
+        ctrlSpecular.value = state.specular;
+        ctrlRefraction.value = state.refraction;
+        ctrlRadius.value = state.radius;
+
+        updateTintButtonsUI();
+      }
+
+      function updateTintButtonsUI() {
+        document.querySelectorAll('.tint-btn').forEach((btn) => {
+          const mode = btn.dataset.tint;
+          if (mode === state.tintMode) {
+            btn.className = 'tint-btn px-2.5 py-1 rounded-md text-xs font-medium border transition bg-indigo-600 text-white border-indigo-500';
+          } else {
+            btn.className = 'tint-btn px-2.5 py-1 rounded-md text-xs font-medium border transition bg-studio-card text-gray-300 border-studio-border hover:border-gray-600';
+          }
+        });
+      }
+
+      // =========================================================
+      // 5. APPLY MATERIAL STYLES TO PREVIEW CARD & GENERATE CSS
+      // =========================================================
+      function applyMaterial() {
+        // Update slider value labels
+        valBlur.textContent = `${state.blur}px`;
+        valSat.textContent = `${state.sat}%`;
+        valTint.textContent = `${state.tint}%`;
+        valNoise.textContent = `${state.noise}%`;
+        valSpecular.textContent = `${state.specular}%`;
+        valRefraction.textContent = `${state.refraction}`;
+        valRadius.textContent = `${state.radius}px`;
+
+        const { r, g, b } = getTintRgb();
+        const alpha = (state.tint / 100).toFixed(2);
+        const specAlpha = (state.specular / 100).toFixed(2);
+        const rimTop = (0.55 * (state.specular / 100)).toFixed(2);
+        const rimBottom = (0.18 * (state.specular / 100)).toFixed(2);
+        const borderAlpha = (0.12 + 0.28 * (state.specular / 100)).toFixed(2);
+
+        // Text contrast adaptation
+        const lightText = !isLightSurface();
+        glassSurface.style.color = lightText ? '#FFFFFF' : '#111827';
+        glassSurface.style.borderRadius = `${state.radius}px`;
+        previewCard.style.borderRadius = `${state.radius}px`;
+
+        // Progressive Blur vs Standard Backdrop Filter
+        if (state.progressive) {
+          progressiveLayers.classList.remove('hidden');
+          glassSurface.style.backdropFilter = 'none';
+          glassSurface.style.webkitBackdropFilter = 'none';
+
+          const steps = progressiveLayers.querySelectorAll('.prog-layer');
+          const blurSteps = [0.15, 0.35, 0.65, 1.0];
+          const maskStops = [
+            'linear-gradient(to bottom, black 0%, transparent 100%)',
+            'linear-gradient(to bottom, black 0%, black 25%, transparent 80%)',
+            'linear-gradient(to bottom, black 0%, black 15%, transparent 55%)',
+            'linear-gradient(to bottom, black 0%, transparent 32%)'
+          ];
+          steps.forEach((layer, idx) => {
+            const bVal = Math.round(state.blur * blurSteps[idx]);
+            const f = `blur(${bVal}px) saturate(${state.sat}%)`;
+            layer.style.backdropFilter = f;
+            layer.style.webkitBackdropFilter = f;
+            layer.style.maskImage = maskStops[idx];
+            layer.style.webkitMaskImage = maskStops[idx];
+          });
+        } else {
+          progressiveLayers.classList.add('hidden');
+          const backdropVal = `blur(${state.blur}px) saturate(${state.sat}%)`;
+          glassSurface.style.backdropFilter = backdropVal;
+          glassSurface.style.webkitBackdropFilter = backdropVal;
+        }
+
+        // Background tint
+        glassSurface.style.backgroundColor = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+
+        // Border & Specular Inner Rim Highlights (Liquid Glass multi-layered inset shadows)
+        glassSurface.style.border = state.chromatic
+          ? '1px solid transparent'
+          : `1px solid rgba(255, 255, 255, ${borderAlpha})`;
+
+        const shadows = [
+          `0 24px 48px -12px rgba(0, 0, 0, 0.45)`,
+          `inset 0 1px 1px rgba(255, 255, 255, ${rimTop})`,
+          `inset 0 -1px 1px rgba(255, 255, 255, ${rimBottom})`
+        ];
+        if (state.refraction > 0) {
+          shadows.push(`inset 0 0 ${Math.round(state.refraction * 0.9)}px rgba(255, 255, 255, ${(0.22 * (state.specular / 100)).toFixed(2)})`);
+        }
+        glassSurface.style.boxShadow = shadows.join(', ');
+
+        // Noise / Grain Layer
+        noiseLayer.style.opacity = (state.noise / 100).toFixed(2);
+
+        // Specular Mouse-Tracking Sheen
+        specularSheen.style.setProperty('--sheen-opacity', (0.65 * (state.specular / 100)).toFixed(2));
+
+        // Chromatic Edge Glow
+        chromaticRing.style.opacity = state.chromatic ? '1' : '0';
+
+        // SVG Refraction / Displacement Filter (graceful subtle optical edge)
+        svgDisplacement.setAttribute('scale', String(state.refraction));
+        if (state.refraction > 0 && !state.progressive) {
+          // Subtle optical edge ring using filter on a pseudo-feel or crisp shadow fallback
+          glassSurface.style.outline = `0.5px solid rgba(255,255,255,${(state.refraction / 90).toFixed(2)})`;
+        } else {
+          glassSurface.style.outline = 'none';
+        }
+
+        generateLiveCSS({ r, g, b, alpha, borderAlpha, rimTop, rimBottom });
+      }
+
+      // =========================================================
+      // 6. LIVE CSS CODE GENERATOR (SYNTAX HIGHLIGHTED)
+      // =========================================================
+      function generateLiveCSS({ r, g, b, alpha, borderAlpha, rimTop, rimBottom }) {
+        const lines = [];
+        lines.push(`/* ${PRESETS[activePresetKey].name} Material */`);
+        lines.push(`.glass-material {`);
+        lines.push(`  background: rgba(${r}, ${g}, ${b}, ${alpha});`);
+
+        if (state.progressive) {
+          lines.push(`  /* Progressive Blur (stacked masked layer) */`);
+          lines.push(`  backdrop-filter: blur(${state.blur}px) saturate(${state.sat}%);`);
+          lines.push(`  -webkit-backdrop-filter: blur(${state.blur}px) saturate(${state.sat}%);`);
+          lines.push(`  mask-image: linear-gradient(to bottom, #000 20%, transparent 100%);`);
+          lines.push(`  -webkit-mask-image: linear-gradient(to bottom, #000 20%, transparent 100%);`);
+        } else {
+          lines.push(`  backdrop-filter: blur(${state.blur}px) saturate(${state.sat}%);`);
+          lines.push(`  -webkit-backdrop-filter: blur(${state.blur}px) saturate(${state.sat}%);`);
+        }
+
+        lines.push(`  border-radius: ${state.radius}px;`);
+
+        if (state.chromatic) {
+          lines.push(`  border: 1.5px solid transparent;`);
+          lines.push(`  /* + iridescent gradient mask border */`);
+        } else {
+          lines.push(`  border: 1px solid rgba(255, 255, 255, ${borderAlpha});`);
+        }
+
+        lines.push(`  box-shadow:`);
+        lines.push(`    0 24px 48px -12px rgba(0, 0, 0, 0.45),`);
+        lines.push(`    inset 0 1px 1px rgba(255, 255, 255, ${rimTop}),`);
+        lines.push(`    inset 0 -1px 1px rgba(255, 255, 255, ${rimBottom});`);
+
+        if (state.noise > 0) {
+          lines.push(`  /* Overlay ::after noise opacity: ${(state.noise / 100).toFixed(2)} */`);
+        }
+        lines.push(`}`);
+
+        rawCssString = lines.join('\n');
+
+        // Simple syntax highlighting
+        const highlighted = rawCssString
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/(\/\*.*?\*\/)/g, '<span class="tok-comment">$1</span>')
+          .replace(/^(\s*)([a-z-]+)(:)/gm, '$1<span class="tok-prop">$2</span><span class="tok-punct">$3</span>')
+          .replace(/(rgba|blur|saturate|linear-gradient)(\()/g, '<span class="tok-fn">$1</span>$2');
+
+        cssOutput.innerHTML = highlighted;
+      }
+
+      // =========================================================
+      // 7. DRAGGABLE CARD + SPECULAR MOUSE TRACKING (60FPS)
+      // =========================================================
+      let cardX = 0;
+      let cardY = 0;
+      let isDragging = false;
+      let dragStartX = 0;
+      let dragStartY = 0;
+      let initialCardX = 0;
+      let initialCardY = 0;
+
+      function centerCard() {
+        const stageRect = stage.getBoundingClientRect();
+        const cardRect = previewCard.getBoundingClientRect();
+        cardX = Math.max(12, (stageRect.width - cardRect.width) / 2);
+        cardY = Math.max(12, (stageRect.height - cardRect.height) / 2);
+        previewCard.style.transform = `translate3d(${cardX}px, ${cardY}px, 0)`;
+      }
+
+      function clampPosition(x, y) {
+        const stageRect = stage.getBoundingClientRect();
+        const cardRect = previewCard.getBoundingClientRect();
+        const maxX = Math.max(12, stageRect.width - cardRect.width - 12);
+        const maxY = Math.max(12, stageRect.height - cardRect.height - 12);
+        return {
+          x: Math.min(Math.max(12, x), maxX),
+          y: Math.min(Math.max(12, y), maxY)
+        };
+      }
+
+      previewCard.addEventListener('pointerdown', (e) => {
+        // Allow scrolling inside progressive layout without dragging
+        if (e.target.closest('#prog-scroll-area')) return;
+        isDragging = true;
+        previewCard.classList.add('dragging');
+        previewCard.setPointerCapture(e.pointerId);
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        initialCardX = cardX;
+        initialCardY = cardY;
+      });
+
+      previewCard.addEventListener('pointermove', (e) => {
+        // Update mouse-tracking specular sheen
+        const rect = previewCard.getBoundingClientRect();
+        const relX = ((e.clientX - rect.left) / rect.width) * 100;
+        const relY = ((e.clientY - rect.top) / rect.height) * 100;
+        specularSheen.style.setProperty('--mouse-x', `${relX.toFixed(1)}%`);
+        specularSheen.style.setProperty('--mouse-y', `${relY.toFixed(1)}%`);
+
+        if (!isDragging) return;
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        const clamped = clampPosition(initialCardX + dx, initialCardY + dy);
+        cardX = clamped.x;
+        cardY = clamped.y;
+        previewCard.style.transform = `translate3d(${cardX}px, ${cardY}px, 0)`;
+      });
+
+      const endDrag = (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        previewCard.classList.remove('dragging');
+        if (previewCard.hasPointerCapture(e.pointerId)) {
+          previewCard.releasePointerCapture(e.pointerId);
+        }
+      };
+
+      previewCard.addEventListener('pointerup', endDrag);
+      previewCard.addEventListener('pointercancel', endDrag);
+
+      // =========================================================
+      // 8. STAGE CONTROLS (BACKGROUNDS, LAYOUTS, ANIMATE)
+      // =========================================================
+      function setStageBg(bgKey) {
+        activeBg = bgKey;
+        document.querySelectorAll('.stage-bg').forEach((el) => el.classList.add('hidden'));
+        const target = document.getElementById(`bg-${bgKey}`);
+        if (target) target.classList.remove('hidden');
+
+        document.querySelectorAll('.bg-btn').forEach((btn) => {
+          if (btn.dataset.bg === bgKey) {
+            btn.className = 'bg-btn px-2.5 py-1 rounded-lg text-xs font-medium transition bg-indigo-600 text-white shadow-sm';
+          } else {
+            btn.className = 'bg-btn px-2.5 py-1 rounded-lg text-xs font-medium transition bg-studio-card text-gray-300 hover:text-white border border-studio-border';
+          }
+        });
+      }
+
+      function setCardLayout(layoutKey) {
+        activeLayout = layoutKey;
+        document.getElementById('layout-widget').classList.toggle('hidden', layoutKey !== 'widget');
+        document.getElementById('layout-dock').classList.toggle('hidden', layoutKey !== 'dock');
+        document.getElementById('layout-progressive').classList.toggle('hidden', layoutKey !== 'progressive');
+
+        document.querySelectorAll('.layout-btn').forEach((btn) => {
+          if (btn.dataset.layout === layoutKey) {
+            btn.className = 'layout-btn px-2.5 py-1 rounded-md text-xs font-medium transition bg-indigo-600 text-white';
+          } else {
+            btn.className = 'layout-btn px-2.5 py-1 rounded-md text-xs font-medium transition text-gray-400 hover:text-white';
+          }
+        });
+
+        requestAnimationFrame(centerCard);
+      }
+
+      // =========================================================
+      // 9. EVENT LISTENERS
+      // =========================================================
+      document.querySelectorAll('.bg-btn').forEach((btn) => {
+        btn.addEventListener('click', () => setStageBg(btn.dataset.bg));
+      });
+
+      document.querySelectorAll('.layout-btn').forEach((btn) => {
+        btn.addEventListener('click', () => setCardLayout(btn.dataset.layout));
+      });
+
+      document.getElementById('btn-animate-bg').addEventListener('click', () => {
+        isAnimatingBg = !isAnimatingBg;
+        stage.classList.toggle('animate-bg', isAnimatingBg);
+        const btn = document.getElementById('btn-animate-bg');
+        const dot = document.getElementById('animate-dot');
+        if (isAnimatingBg) {
+          btn.className = 'px-2.5 py-1.5 rounded-lg text-xs font-medium border border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 transition flex items-center gap-1.5';
+          dot.className = 'w-2 h-2 rounded-full bg-indigo-400 animate-pulse';
+        } else {
+          btn.className = 'px-2.5 py-1.5 rounded-lg text-xs font-medium border border-studio-border bg-studio-card text-gray-400 hover:text-white transition flex items-center gap-1.5';
+          dot.className = 'w-2 h-2 rounded-full bg-gray-500';
+        }
+      });
+
+      document.getElementById('btn-center-card').addEventListener('click', centerCard);
+      document.getElementById('btn-reset').addEventListener('click', () => selectPreset(activePresetKey));
+
+      // Sliders
+      ctrlBlur.addEventListener('input', (e) => { state.blur = Number(e.target.value); applyMaterial(); });
+      ctrlSat.addEventListener('input', (e) => { state.sat = Number(e.target.value); applyMaterial(); });
+      ctrlTint.addEventListener('input', (e) => { state.tint = Number(e.target.value); applyMaterial(); });
+      ctrlNoise.addEventListener('input', (e) => { state.noise = Number(e.target.value); applyMaterial(); });
+      ctrlSpecular.addEventListener('input', (e) => { state.specular = Number(e.target.value); applyMaterial(); });
+      ctrlRefraction.addEventListener('input', (e) => { state.refraction = Number(e.target.value); applyMaterial(); });
+      ctrlRadius.addEventListener('input', (e) => { state.radius = Number(e.target.value); applyMaterial(); });
+
+      document.querySelectorAll('.tint-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.tintMode = btn.dataset.tint;
+          updateTintButtonsUI();
+          applyMaterial();
+        });
+      });
+
+      ctrlCustomColor.addEventListener('input', (e) => {
+        state.tintMode = 'custom';
+        state.customColor = e.target.value;
+        updateTintButtonsUI();
+        applyMaterial();
+      });
+
+      // Copy CSS Button (iFrame-safe execCommand fallback)
+      document.getElementById('btn-copy-css').addEventListener('click', () => {
+        const copyLabel = document.getElementById('copy-label');
+        const textarea = document.createElement('textarea');
+        textarea.value = rawCssString;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          document.execCommand('copy');
+          copyLabel.textContent = 'Copied!';
+          setTimeout(() => { copyLabel.textContent = 'Copy CSS'; }, 1800);
+        } catch (err) {
+          copyLabel.textContent = 'Gagal copy';
+          setTimeout(() => { copyLabel.textContent = 'Copy CSS'; }, 1800);
+        }
+        document.body.removeChild(textarea);
+      });
+
+      window.addEventListener('resize', () => {
+        const clamped = clampPosition(cardX, cardY);
+        cardX = clamped.x;
+        cardY = clamped.y;
+        previewCard.style.transform = `translate3d(${cardX}px, ${cardY}px, 0)`;
+      });
+
+      // =========================================================
+      // 10. INITIALIZE
+      // =========================================================
+      renderPresetButtons();
+      syncControlsFromState();
+      setStageBg('mesh');
+      setCardLayout('widget');
+      applyMaterial();
+      requestAnimationFrame(centerCard);
+    })();
+  </script>
+</body>
+</html>

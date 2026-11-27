@@ -212,6 +212,18 @@ void AppController::on_tray_command(UINT cmd) {
             update_settings(next);
             break;
         }
+        case TrayCommand::ThemeFluentAcrylic: {
+            UserSettings next = settings_;
+            next.theme = VisualTheme::FluentAcrylic;
+            update_settings(next);
+            break;
+        }
+        case TrayCommand::ThemeChromaticPrism: {
+            UserSettings next = settings_;
+            next.theme = VisualTheme::ChromaticPrism;
+            update_settings(next);
+            break;
+        }
         case TrayCommand::ThemePrecisionDark: {
             UserSettings next = settings_;
             next.theme = VisualTheme::PrecisionDark;

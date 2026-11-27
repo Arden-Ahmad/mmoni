@@ -281,7 +281,12 @@ std::string format_json_float(float v) {
 }
 
 const char* theme_to_str(VisualTheme t) {
-    return t == VisualTheme::PrecisionDark ? "PrecisionDark" : "LiquidGlass";
+    switch (t) {
+        case VisualTheme::PrecisionDark: return "PrecisionDark";
+        case VisualTheme::FluentAcrylic: return "FluentAcrylic";
+        case VisualTheme::ChromaticPrism: return "ChromaticPrism";
+        default: return "LiquidGlass";
+    }
 }
 
 const char* layout_to_str(ChartLayoutMode m) {
@@ -378,9 +383,16 @@ UserSettings UserSettings::load() {
             std::string v;
             double n = 0;
             if (r.parse_string(v)) {
-                s.theme = (v == "PrecisionDark") ? VisualTheme::PrecisionDark : VisualTheme::LiquidGlass;
+                if (v == "PrecisionDark") s.theme = VisualTheme::PrecisionDark;
+                else if (v == "FluentAcrylic") s.theme = VisualTheme::FluentAcrylic;
+                else if (v == "ChromaticPrism") s.theme = VisualTheme::ChromaticPrism;
+                else s.theme = VisualTheme::LiquidGlass;
             } else if (r.parse_number(n)) {
-                s.theme = (static_cast<int>(n) == 1) ? VisualTheme::PrecisionDark : VisualTheme::LiquidGlass;
+                const int iv = static_cast<int>(n);
+                if (iv == 1) s.theme = VisualTheme::PrecisionDark;
+                else if (iv == 2) s.theme = VisualTheme::FluentAcrylic;
+                else if (iv == 3) s.theme = VisualTheme::ChromaticPrism;
+                else s.theme = VisualTheme::LiquidGlass;
             } else r.skip_value();
         } else if (key == "ChartLayout") {
             std::string v;

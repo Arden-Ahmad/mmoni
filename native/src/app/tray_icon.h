@@ -27,6 +27,8 @@ enum class TrayCommand : UINT {
     ToggleStartup = 1015,
     RestartElevated = 1016,
     ExitApp = 1017,
+    ThemeFluentAcrylic = 1018,
+    ThemeChromaticPrism = 1019,
     GpuAuto = 1100,
     GpuFirst = 1101
 };
