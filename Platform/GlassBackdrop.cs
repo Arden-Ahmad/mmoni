@@ -79,7 +79,7 @@ internal sealed class GlassBackdrop : IDisposable
         ApplyBlurBehind(_hwnd);
     }
 
-    public void SyncBehind(nint ownerHwnd, int leftPx, int topPx, int widthPx, int heightPx, int radiusPx)
+    public void SyncBehind(nint ownerHwnd, int leftPx, int topPx, int widthPx, int heightPx, int radiusPx, bool ensureZOrder = true)
     {
         if (_disposed || _hwnd == 0 || ownerHwnd == 0 || widthPx <= 4 || heightPx <= 4)
             return;
@@ -117,7 +117,7 @@ internal sealed class GlassBackdrop : IDisposable
             _lastRadius = insetR;
             _visible = true;
         }
-        else
+        else if (ensureZOrder)
         {
             SetWindowPos(_hwnd, ownerHwnd, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
         }

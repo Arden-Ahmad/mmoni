@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     private const double DashboardBaseHeight = 262;
     private const double DashboardBannerExtraHeight = 28;
     private const double StageMaxHeight = DashboardBaseHeight + DashboardBannerExtraHeight;
+    private const int TransitionFrameRate = 60;
     private const string Missing = "—";
 
     private static readonly Brush CpuBrush = FreezeBrush(111, 231, 207);
@@ -39,6 +40,8 @@ public partial class MainWindow : Window
     private static readonly Brush QuietBrush = FreezeBrush(154, 164, 186);
     private static readonly Brush SleepDotBrush = FreezeBrush(106, 116, 138);
     private static readonly Brush LiveGreenBrush = FreezeBrush(74, 222, 128);
+    private static readonly Brush LiveGreenGlowBrush = CreateDotGlow(74, 222, 128);
+    private static readonly Brush LiveWarmGlowBrush = CreateDotGlow(251, 191, 36);
     private static readonly Brush PinActiveBg = FreezeBrush(34, 111, 231, 207);
     private static readonly Brush PinActiveBorder = FreezeBrush(70, 111, 231, 207);
 
@@ -78,10 +81,19 @@ public partial class MainWindow : Window
     private readonly GlassBackdrop _backdrop = new();
     private readonly bool _elevated;
 
+    // Cached XAML resource brushes (avoids FindResource in hot paths)
+    private readonly Brush _powerColorBrush;
+    private readonly Brush _glassBorderBrush;
+    private readonly Brush _glassBorderHoverBrush;
+    private readonly Brush _precisionBorderBrush;
+    private readonly Brush _glassSegThumbBrush;
+
     private UserSettings _settings;
     private IslandState _state = IslandState.Minimal;
     private PixelPoint? _anchor;
     private OverlayPlacement _stagePlacement;
+    private PixelPoint _cachedStagePos;
+    private (int Left, int Top, int Width, int Height, int Radius) _lastSyncedBackdrop;
     private Point? _dragStart;
     private UIElement? _dragSource;
     private bool _dragging;
@@ -93,9 +105,9 @@ public partial class MainWindow : Window
     private Metric _metric = Metric.Temperature;
     private SensorSnapshot? _snapshot;
     private string? _historyGpu;
-    private bool _pulseRunning;
+    private bool _liveHeartbeatBright = true;
 
-    // Diff cache for zero-churn idle minimal updates
+    // Diff caches for zero-churn idle updates
     private string? _lastMinCpuTemp;
     private Brush? _lastMinCpuBrush;
     private string? _lastMinCpuSec;
@@ -103,6 +115,11 @@ public partial class MainWindow : Window
     private Brush? _lastMinGpuBrush;
     private string? _lastMinGpuSec;
     private bool? _lastMinGpuSleep;
+    private Brush? _lastCpuAmbientGlow;
+    private Brush? _lastGpuAmbientGlow;
+    private string? _lastCpuModel;
+    private string? _lastGpuModel;
+    private string? _lastStatusTooltip;
 
     internal MainWindow(UserSettings settings, bool elevated)
     {
@@ -118,6 +135,12 @@ public partial class MainWindow : Window
         _collapseTimer.Tick += (_, _) => OnHoverLeaveTick();
 
         InitializeComponent();
+
+        _powerColorBrush = (Brush)FindResource("PowerColor");
+        _glassBorderBrush = (Brush)FindResource("GlassBorderBrush");
+        _glassBorderHoverBrush = (Brush)FindResource("GlassBorderHoverBrush");
+        _precisionBorderBrush = (Brush)FindResource("PrecisionBorderBrush");
+        _glassSegThumbBrush = (Brush)FindResource("GlassSegThumbBrush");
 
         CpuChart.ScrubChanged += info => UpdateScrubTooltip(isGpu: false, info);
         GpuChart.ScrubChanged += info => UpdateScrubTooltip(isGpu: true, info);
@@ -137,7 +160,7 @@ public partial class MainWindow : Window
         LocationChanged += (_, _) =>
         {
             if (_dragging)
-                SyncBackdropLive();
+                SyncBackdropLive(ensureZOrder: false, useCachedPos: false);
         };
         DpiChanged += (_, _) =>
         {
@@ -153,8 +176,8 @@ public partial class MainWindow : Window
             if (!IsVisible)
             {
                 StopAnimationTracking();
-                StopLivePulse();
                 _backdrop.Hide();
+                _lastSyncedBackdrop = default;
             }
             else if (IsLoaded)
             {
@@ -303,14 +326,15 @@ public partial class MainWindow : Window
             _stagePlacement.StageWindow.Top,
             _stagePlacement.StageWindow.Width,
             _stagePlacement.StageWindow.Height);
+        _cachedStagePos = new PixelPoint(_stagePlacement.StageWindow.Left, _stagePlacement.StageWindow.Top);
 
         var (w, h, r) = GetDimensions(_state);
         var margin = GetChromeMarginInStage(_state);
         ClearChromeAnimations();
-        Chrome.Width = w;
-        Chrome.Height = h;
-        Chrome.Margin = margin;
-        Chrome.CornerRadius = new CornerRadius(r);
+        ChromeHost.Width = w;
+        ChromeHost.Height = h;
+        ChromeHost.Margin = margin;
+        SetChromeCornerRadius(new CornerRadius(r));
         UpdateInnerClip(w, h, r);
 
         if (_state == IslandState.Dashboard)
@@ -342,6 +366,12 @@ public partial class MainWindow : Window
         _cpuHistory.Add(snapshot.Cpu);
         _gpuHistory.Add(snapshot.Gpu);
 
+        if (_state == IslandState.Dashboard)
+        {
+            _liveHeartbeatBright = !_liveHeartbeatBright;
+            LiveDotContainer.Opacity = _liveHeartbeatBright ? 1.0 : 0.55;
+        }
+
         DisplayCurrentVisuals(snapshot);
     }
 
@@ -372,16 +402,27 @@ public partial class MainWindow : Window
             if (_lastMinGpuSleep != gpuSleeping)
             {
                 MinimalGpuDot.Fill = gpuSleeping ? SleepDotBrush : GpuBrush;
-                MinimalGpuSecondary.Foreground = gpuSleeping ? QuietBrush : (Brush)FindResource("PowerColor");
+                MinimalGpuSecondary.Foreground = gpuSleeping ? QuietBrush : _powerColorBrush;
                 _lastMinGpuSleep = gpuSleeping;
             }
         }
 
-        // Update ambient corner glow in Liquid Glass mode.
+        // Update ambient corner glow in Liquid Glass mode ONLY when the thermal band changes.
         if (_settings.Theme == VisualTheme.LiquidGlass)
         {
-            CpuAmbientGlow.Background = GetCornerGlowBrush(cpu?.Temperature, isGpu: false, sleeping: false);
-            GpuAmbientGlow.Background = GetCornerGlowBrush(gpu?.Temperature, isGpu: true, sleeping: gpuSleeping);
+            var nextCpuGlow = GetCornerGlowBrush(cpu?.Temperature, isGpu: false, sleeping: false);
+            if (!ReferenceEquals(_lastCpuAmbientGlow, nextCpuGlow))
+            {
+                CpuAmbientGlow.Background = nextCpuGlow;
+                _lastCpuAmbientGlow = nextCpuGlow;
+            }
+
+            var nextGpuGlow = GetCornerGlowBrush(gpu?.Temperature, isGpu: true, sleeping: gpuSleeping);
+            if (!ReferenceEquals(_lastGpuAmbientGlow, nextGpuGlow))
+            {
+                GpuAmbientGlow.Background = nextGpuGlow;
+                _lastGpuAmbientGlow = nextGpuGlow;
+            }
         }
 
         if (_state == IslandState.Peek)
@@ -401,23 +442,23 @@ public partial class MainWindow : Window
         var cpu = snapshot.Cpu;
         var gpu = snapshot.Gpu;
 
-        PeekCpuTemp.Text = cpuTemp;
-        PeekCpuTemp.Foreground = cpuBrush;
-        PeekCpuPower.Text = Format(cpu?.Power, "W", "0.0");
-        PeekCpuLoad.Text = Format(cpu?.Load, "%", "0");
-        PeekCpuClock.Text = FormatClock(cpu?.Clock);
+        SetText(PeekCpuTemp, cpuTemp);
+        SetForeground(PeekCpuTemp, cpuBrush);
+        SetText(PeekCpuPower, Format(cpu?.Power, "W", "0.0"));
+        SetText(PeekCpuLoad, Format(cpu?.Load, "%", "0"));
+        SetText(PeekCpuClock, FormatClock(cpu?.Clock));
         ApplyThrottleBadge(PeekCpuThrottle, PeekCpuThrottleText, cpu?.Throttle ?? ThrottleFlags.None);
 
-        PeekGpuDot.Fill = gpuSleeping ? SleepDotBrush : GpuBrush;
-        PeekGpuTemp.Text = gpuTemp;
-        PeekGpuTemp.Foreground = gpuBrush;
-        PeekGpuSubGrid.Visibility = gpuSleeping ? Visibility.Collapsed : Visibility.Visible;
-        PeekGpuSleepText.Visibility = gpuSleeping ? Visibility.Visible : Visibility.Collapsed;
+        SetFill(PeekGpuDot, gpuSleeping ? SleepDotBrush : GpuBrush);
+        SetText(PeekGpuTemp, gpuTemp);
+        SetForeground(PeekGpuTemp, gpuBrush);
+        SetVisibility(PeekGpuSubGrid, gpuSleeping ? Visibility.Collapsed : Visibility.Visible);
+        SetVisibility(PeekGpuSleepText, gpuSleeping ? Visibility.Visible : Visibility.Collapsed);
         if (!gpuSleeping)
         {
-            PeekGpuPower.Text = Format(gpu?.Power, "W", "0.0");
-            PeekGpuLoad.Text = Format(gpu?.Load, "%", "0");
-            PeekGpuClock.Text = FormatClock(gpu?.Clock);
+            SetText(PeekGpuPower, Format(gpu?.Power, "W", "0.0"));
+            SetText(PeekGpuLoad, Format(gpu?.Load, "%", "0"));
+            SetText(PeekGpuClock, FormatClock(gpu?.Clock));
         }
         ApplyThrottleBadge(PeekGpuThrottle, PeekGpuThrottleText, gpuSleeping ? ThrottleFlags.None : (gpu?.Throttle ?? ThrottleFlags.None));
     }
@@ -432,32 +473,43 @@ public partial class MainWindow : Window
         var gpu = snapshot.Gpu;
         var gpuSleeping = gpu is { IsSleeping: true };
 
-        // Header live telemetry (fixed slots, all metrics visible, zero redundancy!)
-        DashCpuTemp.Text = Format(cpu?.Temperature, "°C", "0");
-        DashCpuTemp.Foreground = GetThermalBrush(cpu?.Temperature, isGpu: false);
-        DashCpuPower.Text = Format(cpu?.Power, "W", "0.0");
-        DashCpuLoad.Text = Format(cpu?.Load, "%", "0");
-        DashCpuClock.Text = FormatClock(cpu?.Clock);
+        // Header live telemetry (fixed slots, diff-checked to avoid redundant WPF property churn)
+        SetText(DashCpuTemp, Format(cpu?.Temperature, "°C", "0"));
+        SetForeground(DashCpuTemp, GetThermalBrush(cpu?.Temperature, isGpu: false));
+        SetText(DashCpuPower, Format(cpu?.Power, "W", "0.0"));
+        SetText(DashCpuLoad, Format(cpu?.Load, "%", "0"));
+        SetText(DashCpuClock, FormatClock(cpu?.Clock));
         ApplyThrottleBadge(DashCpuThrottle, DashCpuThrottleText, cpu?.Throttle ?? ThrottleFlags.None);
 
-        DashGpuDot.Fill = gpuSleeping ? SleepDotBrush : GpuBrush;
-        DashGpuTemp.Text = gpuSleeping ? "Idle" : Format(gpu?.Temperature, "°C", "0");
-        DashGpuTemp.Foreground = gpuSleeping ? QuietBrush : GetThermalBrush(gpu?.Temperature, isGpu: true);
-        DashGpuPower.Text = gpuSleeping ? "0.0W" : Format(gpu?.Power, "W", "0.0");
-        DashGpuExtraGrid.Visibility = gpuSleeping ? Visibility.Collapsed : Visibility.Visible;
-        DashGpuSleepText.Visibility = gpuSleeping ? Visibility.Visible : Visibility.Collapsed;
+        SetFill(DashGpuDot, gpuSleeping ? SleepDotBrush : GpuBrush);
+        SetText(DashGpuTemp, gpuSleeping ? "Idle" : Format(gpu?.Temperature, "°C", "0"));
+        SetForeground(DashGpuTemp, gpuSleeping ? QuietBrush : GetThermalBrush(gpu?.Temperature, isGpu: true));
+        SetText(DashGpuPower, gpuSleeping ? "0.0W" : Format(gpu?.Power, "W", "0.0"));
+        SetVisibility(DashGpuExtraGrid, gpuSleeping ? Visibility.Collapsed : Visibility.Visible);
+        SetVisibility(DashGpuSleepText, gpuSleeping ? Visibility.Visible : Visibility.Collapsed);
         if (!gpuSleeping)
         {
-            DashGpuLoad.Text = Format(gpu?.Load, "%", "0");
-            DashGpuClock.Text = FormatClock(gpu?.Clock);
+            SetText(DashGpuLoad, Format(gpu?.Load, "%", "0"));
+            SetText(DashGpuClock, FormatClock(gpu?.Clock));
         }
         ApplyThrottleBadge(DashGpuThrottle, DashGpuThrottleText, gpuSleeping ? ThrottleFlags.None : (gpu?.Throttle ?? ThrottleFlags.None));
 
-        // Hardware model names
-        CpuModel.Text = snapshot.CpuName ?? "CPU unavailable";
-        CpuModel.ToolTip = snapshot.CpuName;
-        GpuModel.Text = snapshot.SelectedGpu?.Name ?? "GPU unavailable";
-        GpuModel.ToolTip = snapshot.SelectedGpu?.Name;
+        // Hardware model names (update only when changed)
+        var cpuModelText = snapshot.CpuName ?? "CPU unavailable";
+        if (!string.Equals(_lastCpuModel, cpuModelText, StringComparison.Ordinal))
+        {
+            _lastCpuModel = cpuModelText;
+            CpuModel.Text = cpuModelText;
+            CpuModel.ToolTip = snapshot.CpuName;
+        }
+
+        var gpuModelText = snapshot.SelectedGpu?.Name ?? "GPU unavailable";
+        if (!string.Equals(_lastGpuModel, gpuModelText, StringComparison.Ordinal))
+        {
+            _lastGpuModel = gpuModelText;
+            GpuModel.Text = gpuModelText;
+            GpuModel.ToolTip = snapshot.SelectedGpu?.Name;
+        }
 
         // Dual Glass Card Sparklines + Peak / Avg / Min / Max
         var cpuStats = CpuChart.Display(_cpuHistory, _metric, _settings.HistoryRange, _settings.Theme, _settings.CpuWarmTemp, _settings.CpuHotTemp);
@@ -466,31 +518,38 @@ public partial class MainWindow : Window
         var cpuSessionPeak = _cpuHistory.GetSessionPeak(_metric) ?? cpuStats.Max;
         var gpuSessionPeak = _gpuHistory.GetSessionPeak(_metric) ?? gpuStats.Max;
 
-        CpuPeakText.Text = FormatMetric(cpuSessionPeak);
-        CpuAvgText.Text = FormatMetric(cpuStats.Avg);
-        CpuMaxScale.Text = cpuStats.HasData ? FormatMetric(cpuStats.Max) : string.Empty;
-        CpuMinScale.Text = cpuStats.HasData ? FormatMetric(cpuStats.Min) : string.Empty;
-        CpuEmpty.Visibility = cpuStats.HasData ? Visibility.Collapsed : Visibility.Visible;
+        SetText(CpuPeakText, FormatMetric(cpuSessionPeak));
+        SetText(CpuAvgText, FormatMetric(cpuStats.Avg));
+        SetText(CpuMaxScale, cpuStats.HasData ? FormatMetric(cpuStats.Max) : string.Empty);
+        SetText(CpuMinScale, cpuStats.HasData ? FormatMetric(cpuStats.Min) : string.Empty);
+        SetVisibility(CpuEmpty, cpuStats.HasData ? Visibility.Collapsed : Visibility.Visible);
 
-        GpuPeakText.Text = FormatMetric(gpuSessionPeak);
-        GpuAvgText.Text = FormatMetric(gpuStats.Avg);
-        GpuMaxScale.Text = gpuStats.HasData ? FormatMetric(gpuStats.Max) : string.Empty;
-        GpuMinScale.Text = gpuStats.HasData ? FormatMetric(gpuStats.Min) : string.Empty;
-        GpuEmpty.Text = gpuSleeping ? "dGPU sleeping" : "No readings";
-        GpuEmpty.Visibility = gpuStats.HasData ? Visibility.Collapsed : Visibility.Visible;
+        SetText(GpuPeakText, FormatMetric(gpuSessionPeak));
+        SetText(GpuAvgText, FormatMetric(gpuStats.Avg));
+        SetText(GpuMaxScale, gpuStats.HasData ? FormatMetric(gpuStats.Max) : string.Empty);
+        SetText(GpuMinScale, gpuStats.HasData ? FormatMetric(gpuStats.Min) : string.Empty);
+        SetText(GpuEmpty, gpuSleeping ? "dGPU sleeping" : "No readings");
+        SetVisibility(GpuEmpty, gpuStats.HasData ? Visibility.Collapsed : Visibility.Visible);
 
         // Conditional warning banner (hidden when everything is live & healthy)
         var warning = GetWarningStatus(snapshot);
         var shouldShowBanner = warning is not null;
-        StatusBanner.Visibility = shouldShowBanner ? Visibility.Visible : Visibility.Collapsed;
+        SetVisibility(StatusBanner, shouldShowBanner ? Visibility.Visible : Visibility.Collapsed);
         if (warning is not null)
         {
-            StatusText.Text = warning;
-            StatusText.ToolTip = snapshot.Error ?? warning;
-            StatusDot.Fill = snapshot.Error is not null ? HotBrush : WarmBrush;
+            SetText(StatusText, warning);
+            var tip = snapshot.Error ?? warning;
+            if (!string.Equals(_lastStatusTooltip, tip, StringComparison.Ordinal))
+            {
+                _lastStatusTooltip = tip;
+                StatusText.ToolTip = tip;
+            }
+            SetFill(StatusDot, snapshot.Error is not null ? HotBrush : WarmBrush);
         }
 
-        LiveDot.Fill = snapshot.Error is not null ? WarmBrush : LiveGreenBrush;
+        var hasError = snapshot.Error is not null;
+        SetFill(LiveDot, hasError ? WarmBrush : LiveGreenBrush);
+        SetFill(LiveDotGlow, hasError ? LiveWarmGlowBrush : LiveGreenGlowBrush);
 
         if (shouldShowBanner != _hasStatusBanner)
         {
@@ -498,8 +557,8 @@ public partial class MainWindow : Window
             if (_state == IslandState.Dashboard)
             {
                 DashboardSurface.Height = CurrentDashboardHeight;
-                Chrome.Height = CurrentDashboardHeight;
-                Chrome.Margin = GetChromeMarginInStage(IslandState.Dashboard);
+                ChromeHost.Height = CurrentDashboardHeight;
+                ChromeHost.Margin = GetChromeMarginInStage(IslandState.Dashboard);
                 UpdateInnerClip(DashboardWidth, CurrentDashboardHeight, DashboardRadius);
                 SyncBackdropLive();
             }
@@ -525,47 +584,45 @@ public partial class MainWindow : Window
             StopAnimationTracking();
             ClearChromeAnimations();
             SetSurfaceStateImmediate(nextState);
-            Chrome.Width = targetW;
-            Chrome.Height = targetH;
-            Chrome.Margin = targetMargin;
-            Chrome.CornerRadius = new CornerRadius(targetR);
+            ChromeHost.Width = targetW;
+            ChromeHost.Height = targetH;
+            ChromeHost.Margin = targetMargin;
+            SetChromeCornerRadius(new CornerRadius(targetR));
             UpdateInnerClip(targetW, targetH, targetR);
 
             if (nextState == IslandState.Dashboard)
             {
                 DashboardSurface.Height = CurrentDashboardHeight;
+                _liveHeartbeatBright = true;
+                LiveDotContainer.Opacity = 1.0;
                 RefreshDashboardDetails();
                 UpdateSegThumbPosition(animate: false);
-                StartLivePulse();
             }
-            else
+            else if (nextState == IslandState.Peek && _snapshot is not null)
             {
-                StopLivePulse();
-                if (nextState == IslandState.Peek && _snapshot is not null)
-                    DisplayCurrentVisuals(_snapshot);
+                DisplayCurrentVisuals(_snapshot);
             }
             SyncBackdropLive();
             return;
         }
 
-        var animFromW = Chrome.ActualWidth > 0 ? Chrome.ActualWidth : GetDimensions(previousState).Width;
-        var animFromH = Chrome.ActualHeight > 0 ? Chrome.ActualHeight : GetDimensions(previousState).Height;
-        var animFromMargin = Chrome.Margin;
+        var animFromW = ChromeHost.ActualWidth > 0 ? ChromeHost.ActualWidth : GetDimensions(previousState).Width;
+        var animFromH = ChromeHost.ActualHeight > 0 ? ChromeHost.ActualHeight : GetDimensions(previousState).Height;
+        var animFromMargin = ChromeHost.Margin;
         var animFromRadius = Chrome.CornerRadius;
 
         PrepareSurfaceForTransition(nextState);
         if (nextState == IslandState.Dashboard)
         {
             DashboardSurface.Height = CurrentDashboardHeight;
+            _liveHeartbeatBright = true;
+            LiveDotContainer.Opacity = 1.0;
             RefreshDashboardDetails();
             UpdateSegThumbPosition(animate: false);
-            StartLivePulse();
         }
-        else
+        else if (nextState == IslandState.Peek && _snapshot is not null)
         {
-            StopLivePulse();
-            if (nextState == IslandState.Peek && _snapshot is not null)
-                DisplayCurrentVisuals(_snapshot);
+            DisplayCurrentVisuals(_snapshot);
         }
 
         var isGlass = _settings.Theme == VisualTheme.LiquidGlass;
@@ -577,10 +634,10 @@ public partial class MainWindow : Window
             ? new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.16 }
             : new CubicEase { EasingMode = EasingMode.EaseOut };
 
-        Chrome.Width = targetW;
-        Chrome.Height = targetH;
-        Chrome.Margin = targetMargin;
-        Chrome.CornerRadius = new CornerRadius(targetR);
+        ChromeHost.Width = targetW;
+        ChromeHost.Height = targetH;
+        ChromeHost.Margin = targetMargin;
+        SetChromeCornerRadius(new CornerRadius(targetR));
 
         ChromeShadow.BlurRadius = nextState switch
         {
@@ -591,14 +648,14 @@ public partial class MainWindow : Window
         ChromeShadow.ShadowDepth = nextState == IslandState.Minimal ? 4 : 8;
         ChromeShadow.Opacity = nextState == IslandState.Minimal ? 0.46 : 0.58;
 
-        // Track live Chrome bounds & CornerRadius on every frame so blur & clip NEVER drop out!
+        // Track live ChromeHost bounds & CornerRadius on every animated frame (capped to 60 fps).
         StartAnimationTracking();
 
-        var heightAnim = new DoubleAnimation(animFromH, targetH, duration)
+        var heightAnim = WithFrameRate(new DoubleAnimation(animFromH, targetH, duration)
         {
             EasingFunction = ease,
             FillBehavior = FillBehavior.Stop
-        };
+        });
         heightAnim.Completed += (_, _) =>
         {
             if (version != _animationVersion || _state != nextState)
@@ -607,30 +664,30 @@ public partial class MainWindow : Window
             StopAnimationTracking();
             ClearChromeAnimations();
             SetSurfaceStateImmediate(nextState);
-            Chrome.Width = targetW;
-            Chrome.Height = targetH;
-            Chrome.Margin = targetMargin;
-            Chrome.CornerRadius = new CornerRadius(targetR);
+            ChromeHost.Width = targetW;
+            ChromeHost.Height = targetH;
+            ChromeHost.Margin = targetMargin;
+            SetChromeCornerRadius(new CornerRadius(targetR));
             UpdateInnerClip(targetW, targetH, targetR);
             SyncBackdropLive();
         };
 
-        Chrome.BeginAnimation(WidthProperty, new DoubleAnimation(animFromW, targetW, duration)
+        ChromeHost.BeginAnimation(WidthProperty, WithFrameRate(new DoubleAnimation(animFromW, targetW, duration)
         {
             EasingFunction = ease,
             FillBehavior = FillBehavior.Stop
-        });
-        Chrome.BeginAnimation(HeightProperty, heightAnim);
-        Chrome.BeginAnimation(MarginProperty, new ThicknessAnimation(animFromMargin, targetMargin, duration)
+        }));
+        ChromeHost.BeginAnimation(HeightProperty, heightAnim);
+        ChromeHost.BeginAnimation(MarginProperty, WithFrameRate(new ThicknessAnimation(animFromMargin, targetMargin, duration)
         {
             EasingFunction = ease,
             FillBehavior = FillBehavior.Stop
-        });
-        Chrome.BeginAnimation(Border.CornerRadiusProperty, new CornerRadiusAnimation(animFromRadius, new CornerRadius(targetR), duration)
+        }));
+        Chrome.BeginAnimation(Border.CornerRadiusProperty, WithFrameRate(new CornerRadiusAnimation(animFromRadius, new CornerRadius(targetR), duration)
         {
             EasingFunction = ease,
             FillBehavior = FillBehavior.Stop
-        });
+        }));
 
         AnimateSurfaceOpacity(MinimalSurface, nextState == IslandState.Minimal ? 1 : 0, nextState == IslandState.Minimal ? 165 : 85);
         AnimateSurfaceOpacity(PeekSurface, nextState == IslandState.Peek ? 1 : 0, nextState == IslandState.Peek ? 175 : 85);
@@ -639,16 +696,19 @@ public partial class MainWindow : Window
         if (nextState == IslandState.Dashboard)
         {
             DashboardSlide.BeginAnimation(TranslateTransform.YProperty,
-                new DoubleAnimation(-5, 0, TimeSpan.FromMilliseconds(200))
+                WithFrameRate(new DoubleAnimation(-5, 0, TimeSpan.FromMilliseconds(200))
                 {
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
                     FillBehavior = FillBehavior.Stop
-                });
+                }));
         }
     }
 
     private void StartAnimationTracking()
     {
+        if (Handle != 0)
+            _cachedStagePos = OverlayWindow.GetPosition(Handle);
+
         if (_trackingAnimationFrames)
             return;
 
@@ -667,13 +727,23 @@ public partial class MainWindow : Window
 
     private void OnAnimationFrame(object? sender, EventArgs e)
     {
-        var w = Chrome.ActualWidth;
-        var h = Chrome.ActualHeight;
+        var w = ChromeHost.ActualWidth;
+        var h = ChromeHost.ActualHeight;
         if (w <= 2 || h <= 2)
             return;
 
-        UpdateInnerClip(w, h, Chrome.CornerRadius.TopLeft);
-        SyncBackdropLive();
+        var cr = Chrome.CornerRadius;
+        ChromeShadowLayer.CornerRadius = cr;
+        SpecularRim.CornerRadius = cr;
+        UpdateInnerClip(w, h, cr.TopLeft);
+        SyncBackdropLive(ensureZOrder: false, useCachedPos: true);
+    }
+
+    private void SetChromeCornerRadius(CornerRadius radius)
+    {
+        Chrome.CornerRadius = radius;
+        ChromeShadowLayer.CornerRadius = radius;
+        SpecularRim.CornerRadius = radius;
     }
 
     private void UpdateInnerClip(double chromeW, double chromeH, double cornerRadius)
@@ -686,30 +756,39 @@ public partial class MainWindow : Window
         InnerClip.RadiusY = r;
     }
 
-    private void SyncBackdropLive()
+    private void SyncBackdropLive(bool ensureZOrder = true, bool useCachedPos = false)
     {
         if (!IsVisible || _settings.Theme != VisualTheme.LiquidGlass || Handle == 0)
         {
             _backdrop.Hide();
+            _lastSyncedBackdrop = default;
             return;
         }
 
-        var wDip = Chrome.ActualWidth > 0 ? Chrome.ActualWidth : Chrome.Width;
-        var hDip = Chrome.ActualHeight > 0 ? Chrome.ActualHeight : Chrome.Height;
+        var wDip = ChromeHost.ActualWidth > 0 ? ChromeHost.ActualWidth : ChromeHost.Width;
+        var hDip = ChromeHost.ActualHeight > 0 ? ChromeHost.ActualHeight : ChromeHost.Height;
         if (double.IsNaN(wDip) || double.IsNaN(hDip) || wDip <= 4 || hDip <= 4)
             return;
 
-        var hwndPos = OverlayWindow.GetPosition(Handle);
+        var hwndPos = useCachedPos ? _cachedStagePos : OverlayWindow.GetPosition(Handle);
+        if (!useCachedPos)
+            _cachedStagePos = hwndPos;
+
         var dpiX = _stagePlacement.DpiScaleX > 0 ? _stagePlacement.DpiScaleX : VisualTreeHelper.GetDpi(this).DpiScaleX;
         var dpiY = _stagePlacement.DpiScaleY > 0 ? _stagePlacement.DpiScaleY : VisualTreeHelper.GetDpi(this).DpiScaleY;
 
-        var leftPx = hwndPos.X + (int)Math.Round(Chrome.Margin.Left * dpiX);
-        var topPx = hwndPos.Y + (int)Math.Round(Chrome.Margin.Top * dpiY);
+        var leftPx = hwndPos.X + (int)Math.Round(ChromeHost.Margin.Left * dpiX);
+        var topPx = hwndPos.Y + (int)Math.Round(ChromeHost.Margin.Top * dpiY);
         var widthPx = Math.Max(4, (int)Math.Round(wDip * dpiX));
         var heightPx = Math.Max(4, (int)Math.Round(hDip * dpiY));
         var radiusPx = Math.Max(1, (int)Math.Round(Chrome.CornerRadius.TopLeft * dpiX));
 
-        _backdrop.SyncBehind(Handle, leftPx, topPx, widthPx, heightPx, radiusPx);
+        var bounds = (leftPx, topPx, widthPx, heightPx, radiusPx);
+        if (!ensureZOrder && _lastSyncedBackdrop == bounds)
+            return;
+
+        _lastSyncedBackdrop = bounds;
+        _backdrop.SyncBehind(Handle, leftPx, topPx, widthPx, heightPx, radiusPx, ensureZOrder);
     }
 
     private void PrepareSurfaceForTransition(IslandState target)
@@ -742,17 +821,17 @@ public partial class MainWindow : Window
     {
         var from = element.Opacity;
         element.Opacity = targetOpacity;
-        element.BeginAnimation(OpacityProperty, new DoubleAnimation(from, targetOpacity, TimeSpan.FromMilliseconds(ms))
+        element.BeginAnimation(OpacityProperty, WithFrameRate(new DoubleAnimation(from, targetOpacity, TimeSpan.FromMilliseconds(ms))
         {
             FillBehavior = FillBehavior.Stop
-        });
+        }));
     }
 
     private void ClearChromeAnimations()
     {
-        Chrome.BeginAnimation(WidthProperty, null);
-        Chrome.BeginAnimation(HeightProperty, null);
-        Chrome.BeginAnimation(MarginProperty, null);
+        ChromeHost.BeginAnimation(WidthProperty, null);
+        ChromeHost.BeginAnimation(HeightProperty, null);
+        ChromeHost.BeginAnimation(MarginProperty, null);
         Chrome.BeginAnimation(Border.CornerRadiusProperty, null);
         MinimalSurface.BeginAnimation(OpacityProperty, null);
         PeekSurface.BeginAnimation(OpacityProperty, null);
@@ -764,15 +843,15 @@ public partial class MainWindow : Window
     {
         var isGlass = _settings.Theme == VisualTheme.LiquidGlass;
 
-        Chrome.Background = isGlass
+        ChromeShadowLayer.Background = isGlass
             ? (_state == IslandState.Minimal ? GlassSurfaceIdle : GlassSurfaceExpanded)
             : PrecisionSurface;
-        Chrome.BorderBrush = (Brush)FindResource(isGlass ? "GlassBorderBrush" : "PrecisionBorderBrush");
+        Chrome.BorderBrush = isGlass ? _glassBorderBrush : _precisionBorderBrush;
         AmbientGlowLayer.Visibility = isGlass ? Visibility.Visible : Visibility.Collapsed;
         SpecularRim.Visibility = isGlass ? Visibility.Visible : Visibility.Collapsed;
 
         SegmentedTrack.Background = isGlass ? GlassSegBg : PrecisionSegBg;
-        SegThumb.Background = isGlass ? (Brush)FindResource("GlassSegThumbBrush") : PrecisionSegThumb;
+        SegThumb.Background = isGlass ? _glassSegThumbBrush : PrecisionSegThumb;
         SegThumb.BorderBrush = isGlass ? GlassSegThumbBorder : PrecisionSegThumbBorder;
 
         var cardBg = isGlass ? GlassCardBg : PrecisionCardBg;
@@ -788,7 +867,10 @@ public partial class MainWindow : Window
         GpuCard.CornerRadius = cardRadius;
 
         if (!isGlass)
+        {
             _backdrop.Hide();
+            _lastSyncedBackdrop = default;
+        }
     }
 
     private void ApplyCollapsedModeLayout(bool reposition)
@@ -827,15 +909,16 @@ public partial class MainWindow : Window
 
     private void UpdateChromeState()
     {
-        Chrome.Opacity = _settings.ClickThrough ? 0.78 : 1.0;
+        ChromeHost.Opacity = _settings.ClickThrough ? 0.78 : 1.0;
 
         if (_settings.Theme == VisualTheme.LiquidGlass)
         {
-            Chrome.Background = _state == IslandState.Minimal
-                ? (Chrome.IsMouseOver ? GlassSurfaceHover : GlassSurfaceIdle)
+            ChromeShadowLayer.Background = _state == IslandState.Minimal
+                ? (ChromeHost.IsMouseOver ? GlassSurfaceHover : GlassSurfaceIdle)
                 : GlassSurfaceExpanded;
-            Chrome.BorderBrush = (Brush)FindResource(
-                _state == IslandState.Minimal && Chrome.IsMouseOver ? "GlassBorderHoverBrush" : "GlassBorderBrush");
+            Chrome.BorderBrush = _state == IslandState.Minimal && ChromeHost.IsMouseOver
+                ? _glassBorderHoverBrush
+                : _glassBorderBrush;
         }
 
         MinimalSurface.ToolTip = _settings.AutoExpandOnHover
@@ -859,37 +942,14 @@ public partial class MainWindow : Window
         };
     }
 
-    private void StartLivePulse()
-    {
-        if (_pulseRunning)
-            return;
-
-        if (Resources["LiveDotPulse"] is Storyboard sb)
-        {
-            sb.Begin(this, isControllable: true);
-            _pulseRunning = true;
-        }
-    }
-
-    private void StopLivePulse()
-    {
-        if (!_pulseRunning)
-            return;
-
-        if (Resources["LiveDotPulse"] is Storyboard sb)
-            sb.Stop(this);
-
-        LiveDot.Opacity = 1.0;
-        _pulseRunning = false;
-    }
-
     // =========================================================================
     // INTERACTION HANDLERS (3-STATE HOVER / CLICK / PIN / SCRUB / DRAG)
     // =========================================================================
 
     private void ChromeSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        UpdateInnerClip(e.NewSize.Width, e.NewSize.Height, Chrome.CornerRadius.TopLeft);
+        if (!_trackingAnimationFrames)
+            UpdateInnerClip(e.NewSize.Width, e.NewSize.Height, Chrome.CornerRadius.TopLeft);
     }
 
     private void ChromeMouseEnter(object sender, MouseEventArgs args)
@@ -926,14 +986,14 @@ public partial class MainWindow : Window
     private void OnPeekHoverTick()
     {
         _peekTimer.Stop();
-        if (_settings.AutoExpandOnHover && _state == IslandState.Minimal && !_dragging && !_settings.ClickThrough && Chrome.IsMouseOver)
+        if (_settings.AutoExpandOnHover && _state == IslandState.Minimal && !_dragging && !_settings.ClickThrough && ChromeHost.IsMouseOver)
             TransitionTo(IslandState.Peek);
     }
 
     private void OnHoverLeaveTick()
     {
         _collapseTimer.Stop();
-        if (_dragging || Chrome.IsMouseOver)
+        if (_dragging || ChromeHost.IsMouseOver)
             return;
 
         if (_state == IslandState.Peek || (_state == IslandState.Dashboard && !_pinned))
@@ -1006,12 +1066,12 @@ public partial class MainWindow : Window
         }
 
         var isGlass = _settings.Theme == VisualTheme.LiquidGlass;
-        var anim = new DoubleAnimation(SegThumbTransform.X, targetX, TimeSpan.FromMilliseconds(isGlass ? 230 : 160))
+        var anim = WithFrameRate(new DoubleAnimation(SegThumbTransform.X, targetX, TimeSpan.FromMilliseconds(isGlass ? 230 : 160))
         {
             EasingFunction = isGlass
                 ? new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.2 }
                 : new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
+        });
         SegThumbTransform.BeginAnimation(TranslateTransform.XProperty, anim);
     }
 
@@ -1111,8 +1171,8 @@ public partial class MainWindow : Window
         // Convert dragged stage HWND top-left back to Minimal visual anchor.
         var hwndPos = OverlayWindow.GetPosition(Handle);
         var (dpiX, dpiY) = OverlayWindow.GetMonitorDpiScale(hwndPos, Handle);
-        var chromeLeftPx = hwndPos.X + (int)Math.Round(Chrome.Margin.Left * dpiX);
-        var chromeTopPx = hwndPos.Y + (int)Math.Round(Chrome.Margin.Top * dpiY);
+        var chromeLeftPx = hwndPos.X + (int)Math.Round(ChromeHost.Margin.Left * dpiX);
+        var chromeTopPx = hwndPos.Y + (int)Math.Round(ChromeHost.Margin.Top * dpiY);
 
         var (stateW, _, _) = GetDimensions(_state);
         var compactPxW = (int)Math.Round(MinimalWidth * dpiX);
@@ -1194,16 +1254,51 @@ public partial class MainWindow : Window
     {
         if (flags == ThrottleFlags.None)
         {
-            badge.Visibility = Visibility.Collapsed;
+            if (badge.Visibility != Visibility.Collapsed)
+                badge.Visibility = Visibility.Collapsed;
             return;
         }
 
         var isThermal = flags.HasFlag(ThrottleFlags.Thermal);
-        label.Text = isThermal ? "THRM" : "PWR";
+        var text = isThermal ? "THRM" : "PWR";
+        if (badge.Visibility == Visibility.Visible && string.Equals(label.Text, text, StringComparison.Ordinal))
+            return;
+
+        label.Text = text;
         label.Foreground = isThermal ? HotBrush : WarmBrush;
         badge.Background = isThermal ? ThrottleThermalBg : ThrottlePowerBg;
         badge.BorderBrush = isThermal ? ThrottleThermalBorder : ThrottlePowerBorder;
         badge.Visibility = Visibility.Visible;
+    }
+
+    private static T WithFrameRate<T>(T timeline) where T : Timeline
+    {
+        Timeline.SetDesiredFrameRate(timeline, TransitionFrameRate);
+        return timeline;
+    }
+
+    private static void SetText(TextBlock tb, string value)
+    {
+        if (!string.Equals(tb.Text, value, StringComparison.Ordinal))
+            tb.Text = value;
+    }
+
+    private static void SetForeground(TextBlock tb, Brush brush)
+    {
+        if (!ReferenceEquals(tb.Foreground, brush))
+            tb.Foreground = brush;
+    }
+
+    private static void SetFill(System.Windows.Shapes.Shape shape, Brush brush)
+    {
+        if (!ReferenceEquals(shape.Fill, brush))
+            shape.Fill = brush;
+    }
+
+    private static void SetVisibility(UIElement element, Visibility visibility)
+    {
+        if (element.Visibility != visibility)
+            element.Visibility = visibility;
     }
 
     private string? GetWarningStatus(SensorSnapshot snapshot)
@@ -1247,6 +1342,15 @@ public partial class MainWindow : Window
         };
         brush.GradientStops.Add(new GradientStop(Color.FromArgb(alpha, r, g, b), 0.0));
         brush.GradientStops.Add(new GradientStop(Color.FromArgb(0, r, g, b), 1.0));
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Brush CreateDotGlow(byte r, byte g, byte b)
+    {
+        var brush = new RadialGradientBrush(
+            Color.FromArgb(153, r, g, b),
+            Color.FromArgb(0, r, g, b));
         brush.Freeze();
         return brush;
     }

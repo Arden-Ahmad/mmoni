@@ -144,49 +144,45 @@
             <Setter Property="HorizontalAlignment" Value="Left"/>
             <Setter Property="VerticalAlignment" Value="Top"/>
         </Style>
-
-        <Storyboard x:Key="LiveDotPulse" RepeatBehavior="Forever">
-            <DoubleAnimation Storyboard.TargetName="LiveDot"
-                             Storyboard.TargetProperty="Opacity"
-                             From="1.0" To="0.32" Duration="0:0:0.9"
-                             AutoReverse="True">
-                <DoubleAnimation.EasingFunction>
-                    <SineEase EasingMode="EaseInOut"/>
-                </DoubleAnimation.EasingFunction>
-            </DoubleAnimation>
-        </Storyboard>
     </Window.Resources>
 
     <!-- No Background brush => empty pixels are alpha=0 and 100% click-through to VS Code! -->
     <Grid>
-        <Border x:Name="Chrome" Width="228" Height="28"
-                HorizontalAlignment="Left" VerticalAlignment="Top"
-                Margin="18,6,0,0"
-                CornerRadius="14" BorderThickness="1"
-                BorderBrush="{StaticResource GlassBorderBrush}"
-                Background="#A6141824"
-                SizeChanged="ChromeSizeChanged"
-                MouseEnter="ChromeMouseEnter" MouseLeave="ChromeMouseLeave">
-            <Border.Effect>
-                <DropShadowEffect x:Name="ChromeShadow" Color="#000000" Direction="270"
-                                  ShadowDepth="5" BlurRadius="16" Opacity="0.48"/>
-            </Border.Effect>
+        <Grid x:Name="ChromeHost" Width="228" Height="28"
+              HorizontalAlignment="Left" VerticalAlignment="Top"
+              Margin="18,6,0,0"
+              SizeChanged="ChromeSizeChanged"
+              MouseEnter="ChromeMouseEnter" MouseLeave="ChromeMouseLeave">
+            <!-- Dedicated shadow + surface layer decoupled from InnerSurface redraws -->
+            <Border x:Name="ChromeShadowLayer"
+                    CornerRadius="14"
+                    Background="#A6141824"
+                    IsHitTestVisible="False">
+                <Border.Effect>
+                    <DropShadowEffect x:Name="ChromeShadow" Color="#000000" Direction="270"
+                                      ShadowDepth="5" BlurRadius="16" Opacity="0.48"/>
+                </Border.Effect>
+            </Border>
 
-            <Grid x:Name="InnerSurface">
-                <Grid.Clip>
-                    <RectangleGeometry x:Name="InnerClip" Rect="0,0,226,26" RadiusX="13" RadiusY="13"/>
-                </Grid.Clip>
+            <Border x:Name="Chrome"
+                    CornerRadius="14" BorderThickness="1"
+                    BorderBrush="{StaticResource GlassBorderBrush}"
+                    Background="Transparent">
+                <Grid x:Name="InnerSurface">
+                    <Grid.Clip>
+                        <RectangleGeometry x:Name="InnerClip" Rect="0,0,226,26" RadiusX="13" RadiusY="13"/>
+                    </Grid.Clip>
 
-                <!-- Ambient corner thermal glow (Liquid Glass mode) -->
-                <Grid x:Name="AmbientGlowLayer" IsHitTestVisible="False">
-                    <Border x:Name="CpuAmbientGlow" CornerRadius="{Binding CornerRadius, ElementName=Chrome}"/>
-                    <Border x:Name="GpuAmbientGlow" CornerRadius="{Binding CornerRadius, ElementName=Chrome}"/>
-                </Grid>
+                    <!-- Ambient corner thermal glow (Liquid Glass mode; clipped by InnerClip) -->
+                    <Grid x:Name="AmbientGlowLayer" IsHitTestVisible="False">
+                        <Border x:Name="CpuAmbientGlow"/>
+                        <Border x:Name="GpuAmbientGlow"/>
+                    </Grid>
 
-                <!-- Subtle top specular highlight rim -->
-                <Border x:Name="SpecularRim" BorderThickness="0,1,0,0" BorderBrush="#2CFFFFFF"
-                        CornerRadius="{Binding CornerRadius, ElementName=Chrome}"
-                        IsHitTestVisible="False"/>
+                    <!-- Subtle top specular highlight rim -->
+                    <Border x:Name="SpecularRim" BorderThickness="0,1,0,0" BorderBrush="#2CFFFFFF"
+                            CornerRadius="14"
+                            IsHitTestVisible="False"/>
 
                 <!-- =========================================================
                      STATE 01: MINIMAL PILL (Fixed-slot columns, zero jitter!)
@@ -571,12 +567,19 @@
                                 </ControlTemplate>
                             </Button.Template>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Ellipse x:Name="LiveDot" Width="6" Height="6" Fill="{StaticResource LiveGreen}"
-                                         Margin="0,0,5.5,0" VerticalAlignment="Center">
-                                    <Ellipse.Effect>
-                                        <DropShadowEffect Color="#4ADE80" BlurRadius="6" ShadowDepth="0" Opacity="0.75"/>
-                                    </Ellipse.Effect>
-                                </Ellipse>
+                                <Grid x:Name="LiveDotContainer" Width="12" Height="12" Margin="-3,0,2.5,0"
+                                      VerticalAlignment="Center" IsHitTestVisible="False">
+                                    <Ellipse x:Name="LiveDotGlow" Width="12" Height="12">
+                                        <Ellipse.Fill>
+                                            <RadialGradientBrush>
+                                                <GradientStop Color="#994ADE80" Offset="0"/>
+                                                <GradientStop Color="#004ADE80" Offset="1"/>
+                                            </RadialGradientBrush>
+                                        </Ellipse.Fill>
+                                    </Ellipse>
+                                    <Ellipse x:Name="LiveDot" Width="6" Height="6" Fill="{StaticResource LiveGreen}"
+                                             HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Grid>
                                 <TextBlock x:Name="RangeText" Text="60s" FontSize="11" FontWeight="Medium"
                                            Foreground="{StaticResource QuietColor}" VerticalAlignment="Center"/>
                             </StackPanel>
@@ -720,5 +723,6 @@
                 </Grid>
             </Grid>
         </Border>
+        </Grid>
     </Grid>
 </Window>

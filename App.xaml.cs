@@ -98,7 +98,7 @@ public partial class App : Application
 
         _fullscreenTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
         _fullscreenTimer.Tick += (_, _) => CheckFullscreenAutoHide();
-        _fullscreenTimer.Start();
+        SyncFullscreenTimer();
 
         CreateTray(elevated);
         _overlay.Show();
@@ -292,6 +292,7 @@ public partial class App : Application
         {
             UpdateSettings(_settings with { AutoHideInFullscreen = !_settings.AutoHideInFullscreen });
             CheckFullscreenAutoHide();
+            SyncFullscreenTimer();
         });
 
         var clickThrough = new Forms.ToolStripMenuItem("Click-through", null, (_, _) =>
@@ -431,6 +432,9 @@ public partial class App : Application
         if (_exiting || _overlay is null)
             return;
 
+        if (!_userHidden && !_sessionLocked && (_fullscreenTimer is null || !_fullscreenTimer.IsEnabled))
+            _fullscreenHidden = _settings.AutoHideInFullscreen && OverlayWindow.IsFullscreenAppActive();
+
         var shouldBeVisible = !_userHidden && !_fullscreenHidden && !_sessionLocked;
         _monitor?.SetPaused(!shouldBeVisible);
 
@@ -445,6 +449,25 @@ public partial class App : Application
         else if (_overlay.IsVisible)
         {
             _overlay.Hide();
+        }
+
+        SyncFullscreenTimer();
+    }
+
+    private void SyncFullscreenTimer()
+    {
+        if (_fullscreenTimer is null)
+            return;
+
+        var shouldMonitor = !_exiting && _settings.AutoHideInFullscreen && !_userHidden && !_sessionLocked;
+        if (shouldMonitor)
+        {
+            if (!_fullscreenTimer.IsEnabled)
+                _fullscreenTimer.Start();
+        }
+        else if (_fullscreenTimer.IsEnabled)
+        {
+            _fullscreenTimer.Stop();
         }
     }
 

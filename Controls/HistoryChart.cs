@@ -64,6 +64,7 @@ public sealed class HistoryChart : FrameworkElement
     private readonly List<Point> _segment = new(MaxRenderPoints);
     private readonly Point[] _allPoints = new Point[MaxRenderPoints];
     private readonly bool[] _pointValid = new bool[MaxRenderPoints];
+    private readonly List<(StreamGeometry Area, StreamGeometry Line)> _cachedSegments = new(4);
 
     private int _plotCount;
     private int _windowSeconds = 60;
@@ -76,6 +77,11 @@ public sealed class HistoryChart : FrameworkElement
     private float _dataMin;
     private float _dataMax;
     private int? _scrubSlot;
+    private bool _geometryDirty = true;
+    private bool _wasEmpty = true;
+    private double _cachedWidth;
+    private double _cachedHeight;
+    private int _cachedLatestSlot = -1;
 
     public bool IsGpu { get; set; }
 
@@ -94,9 +100,16 @@ public sealed class HistoryChart : FrameworkElement
         float warmThreshold,
         float hotThreshold)
     {
+        var windowSeconds = (int)range;
+        var configChanged = _metric != metric
+            || _theme != theme
+            || _windowSeconds != windowSeconds
+            || Math.Abs(_warmThreshold - warmThreshold) > 0.01f
+            || Math.Abs(_hotThreshold - hotThreshold) > 0.01f;
+
         _metric = metric;
         _theme = theme;
-        _windowSeconds = (int)range;
+        _windowSeconds = windowSeconds;
         _warmThreshold = warmThreshold;
         _hotThreshold = hotThreshold;
 
@@ -178,12 +191,19 @@ public sealed class HistoryChart : FrameworkElement
         if (_scrubSlot is int slotIndex)
             NotifyScrub(slotIndex);
 
-        InvalidateVisual();
+        var hasData = validCount > 0;
+        if (hasData || !_wasEmpty || configChanged)
+        {
+            _geometryDirty = true;
+            _wasEmpty = !hasData;
+            InvalidateVisual();
+        }
+
         return new ChartStats(
-            validCount > 0,
+            hasData,
             min,
             max,
-            validCount > 0 ? (float)(sum / validCount) : null,
+            hasData ? (float)(sum / validCount) : null,
             latest);
     }
 
@@ -253,6 +273,51 @@ public sealed class HistoryChart : FrameworkElement
         if (_plotCount <= 0)
             return;
 
+        if (_geometryDirty || Math.Abs(fullW - _cachedWidth) > 0.5 || Math.Abs(fullH - _cachedHeight) > 0.5)
+        {
+            RebuildGeometryCache(fullW, padX, padTop, width, height, bottomY, isGlass);
+            _cachedWidth = fullW;
+            _cachedHeight = fullH;
+            _geometryDirty = false;
+        }
+
+        var (pen, fill, glow) = SelectBrushes(isGlass);
+
+        for (var i = 0; i < _cachedSegments.Count; i++)
+        {
+            var (area, line) = _cachedSegments[i];
+            context.DrawGeometry(fill, null, area);
+            context.DrawGeometry(null, pen, line);
+        }
+
+        // Live endpoint dot with soft halo.
+        if (_cachedLatestSlot >= 0 && _pointValid[_cachedLatestSlot])
+        {
+            var tip = _allPoints[_cachedLatestSlot];
+            if (isGlass)
+                context.DrawEllipse(glow, null, tip, 5.5, 5.5);
+
+            context.DrawEllipse(pen.Brush, null, tip, isGlass ? 2.6 : 2.1, isGlass ? 2.6 : 2.1);
+        }
+
+        // Interactive scrub crosshair & dot (reuses cached curve geometries with zero rebuilds).
+        if (_scrubSlot is int s && s >= 0 && s < _plotCount && _pointValid[s])
+        {
+            var sp = _allPoints[s];
+            context.DrawLine(ScrubLinePen, new Point(sp.X, 1), new Point(sp.X, fullH - 1));
+            context.DrawEllipse(WhiteBrush, pen, sp, 3.0, 3.0);
+        }
+    }
+
+    private void RebuildGeometryCache(
+        double fullW,
+        double padX,
+        double padTop,
+        double width,
+        double height,
+        double bottomY,
+        bool isGlass)
+    {
         var minSpan = _metric switch
         {
             Metric.Temperature => 8f,
@@ -269,11 +334,10 @@ public sealed class HistoryChart : FrameworkElement
         if (yMax <= yMin)
             yMax = yMin + minSpan;
 
-        var (pen, fill, glow) = SelectBrushes(isGlass);
-
         Array.Clear(_pointValid, 0, _plotCount);
         _segment.Clear();
-        var latestSlot = -1;
+        _cachedSegments.Clear();
+        _cachedLatestSlot = -1;
 
         for (var i = 0; i <= _plotCount; i++)
         {
@@ -284,34 +348,16 @@ public sealed class HistoryChart : FrameworkElement
                 var pt = new Point(x, padTop + height * (1 - fraction));
                 _allPoints[i] = pt;
                 _pointValid[i] = true;
-                latestSlot = i;
+                _cachedLatestSlot = i;
                 _segment.Add(pt);
                 continue;
             }
 
+            if (_segment.Count >= 2)
+                _cachedSegments.Add(BuildSegmentGeometry(_segment, bottomY, isGlass));
+
             if (_segment.Count > 0)
-            {
-                DrawSegment(context, _segment, bottomY, pen, fill, isGlass);
                 _segment.Clear();
-            }
-        }
-
-        // Live endpoint dot with soft halo.
-        if (latestSlot >= 0 && _pointValid[latestSlot])
-        {
-            var tip = _allPoints[latestSlot];
-            if (isGlass)
-                context.DrawEllipse(glow, null, tip, 5.5, 5.5);
-
-            context.DrawEllipse(pen.Brush, null, tip, isGlass ? 2.6 : 2.1, isGlass ? 2.6 : 2.1);
-        }
-
-        // Interactive scrub crosshair & dot.
-        if (_scrubSlot is int s && s >= 0 && s < _plotCount && _pointValid[s])
-        {
-            var sp = _allPoints[s];
-            context.DrawLine(ScrubLinePen, new Point(sp.X, 1), new Point(sp.X, fullH - 1));
-            context.DrawEllipse(WhiteBrush, pen, sp, 3.0, 3.0);
         }
     }
 
@@ -330,17 +376,11 @@ public sealed class HistoryChart : FrameworkElement
             : (isGlass ? CpuPenGlass : CpuPenSharp, isGlass ? CpuFillGlass : CpuFillSharp, CpuGlowBrush);
     }
 
-    private static void DrawSegment(
-        DrawingContext context,
+    private static (StreamGeometry Area, StreamGeometry Line) BuildSegmentGeometry(
         List<Point> points,
         double bottomY,
-        Pen pen,
-        Brush fill,
         bool smooth)
     {
-        if (points.Count < 2)
-            return;
-
         var area = new StreamGeometry();
         using (var g = area.Open())
         {
@@ -350,7 +390,6 @@ public sealed class HistoryChart : FrameworkElement
             g.LineTo(new Point(points[^1].X, bottomY), isStroked: false, isSmoothJoin: false);
         }
         area.Freeze();
-        context.DrawGeometry(fill, null, area);
 
         var line = new StreamGeometry();
         using (var g = line.Open())
@@ -359,7 +398,8 @@ public sealed class HistoryChart : FrameworkElement
             TraceCurve(g, points, smooth, isStroked: true);
         }
         line.Freeze();
-        context.DrawGeometry(null, pen, line);
+
+        return (area, line);
     }
 
     private static void TraceCurve(StreamGeometryContext g, List<Point> pts, bool smooth, bool isStroked)
