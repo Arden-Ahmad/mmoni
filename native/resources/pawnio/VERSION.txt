@@ -1,0 +1,7 @@
+Official signed PawnIO kernel modules vendored from:
+  Repository : https://github.com/namazso/PawnIO.Modules
+  Release    : 0.2.2
+
+Included modules (embedded as RT_RCDATA in Mmoni.exe and MmoniDiag.exe):
+  - IntelMSR.bin     (Intel Core / Core Ultra architectural MSRs)
+  - AMDFamily17.bin  (AMD Ryzen Zen 1-5 Family 17h/19h/1Ah MSR + SMN)

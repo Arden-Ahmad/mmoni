@@ -1,0 +1,5 @@
+#include <windows.h>
+#include "resource.h"
+
+IDR_PAWNIO_INTEL_MSR     RCDATA  "pawnio\\IntelMSR.bin"
+IDR_PAWNIO_AMD_FAM17     RCDATA  "pawnio\\AMDFamily17.bin"

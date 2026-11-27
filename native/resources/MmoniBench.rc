@@ -1,0 +1,9 @@
+#include <windows.h>
+#include "resource.h"
+
+IDI_MMONI_APP            ICON    "..\\..\\Assets\\Mmoni.ico"
+
+IDR_PAWNIO_INTEL_MSR     RCDATA  "pawnio\\IntelMSR.bin"
+IDR_PAWNIO_AMD_FAM17     RCDATA  "pawnio\\AMDFamily17.bin"
+
+1 RT_MANIFEST "app_bench.manifest"

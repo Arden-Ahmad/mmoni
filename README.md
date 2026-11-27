@@ -1,46 +1,49 @@
 # Mmoni
 
-Mmoni is a minimal Windows desktop overlay for CPU and GPU temperature, power, load, and clocks. It uses WPF on .NET 10 and samples LibreHardwareMonitorLib once per second.
+Mmoni is a minimal, ultra-lightweight Windows 11 desktop telemetry overlay for CPU and GPU temperature, power, load, and clocks.
 
-## Install (Recommended)
+**Mmoni v2** is a native **C++20 (Win32 + Windows.UI.Composition + Direct2D/DirectWrite)** rewrite with zero runtime dependencies (no `.NET`, no MSVC redistributable required) and direct modern hardware telemetry (**PawnIO + Windows PDH + NVML/NVAPI + ADLX + Intel IGCL**).
 
-Build the Windows installers (requires `.NET 10 SDK` and [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
+## Highlights (v2 Native)
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
-```
+- **~507 KB single executable** (`~2.16 MB` Inno Setup installer), statically linked (`/MT`)
+- **~13–15 MB Working Set** and **0.00% idle CPU** at 1 Hz polling
+- **< 1 ms sensor polling** (vs ~327 ms with LibreHardwareMonitorLib)
+- **Single-HWND Windows 11 Liquid Glass** (`HostBackdropBrush` + Direct2D/DirectWrite pinned strictly to iGPU on hybrid laptops, plus **Precision Dark** no-blur theme)
+- **Native monitor refresh-rate transitions** (DWM `DwmFlush()` VSync pacer + QPC, sleeping at 0% CPU when idle)
+- **True cross-process click-through** outside the visible pill/peek/dashboard bounds (`SetWindowRgn`), Aero Peek exclusion (`DWMWA_EXCLUDED_FROM_PEEK`), and Optimus/hybrid dGPU D3 sleep protection via `CfgMgr32`
 
-This generates two installers in `dist\`:
-- **`Mmoni-Setup-1.0.0-win-x64-standalone.exe`** — Self-contained; works on any 64-bit Windows 10/11 PC without installing .NET separately.
-- **`Mmoni-Setup-1.0.0-win-x64-net10.exe`** — Lightweight installer for PCs that already have the .NET 10 Desktop Runtime.
+## Build & Install (Windows 11 22H2+)
 
-The installer:
-- Installs cleanly to `C:\Program Files\Mmoni`
-- Registers **Mmoni** in **Windows Settings → Installed Apps / Control Panel** with a full uninstaller
-- Creates Start Menu (and optional Desktop) shortcuts
-- Optionally configures **Windows Task Scheduler** to start Mmoni automatically at sign-in with **Administrator privileges and no UAC prompt** (with battery & execution-time restrictions disabled)
-- Gracefully stops running instances during upgrades/uninstalls and cleans up the scheduled task on uninstall
-
-## Run locally (Development)
-
-With the .NET 10 SDK installed, run this from the project folder:
+Requires **Visual Studio 2022/2026 C++ Build Tools** (with Windows 11 SDK) and optionally **[Inno Setup 6](https://jrsoftware.org/isinfo.php)** for packaging.
 
 ```powershell
-dotnet run --configuration Release
+# Build native Release binary (native\build\release\Mmoni.exe)
+powershell -ExecutionPolicy Bypass -File native\scripts\build-native.ps1 -Configuration Release
+
+# Build Release binary + single native installer (dist\Mmoni-Setup-2.0.0-win-x64-native.exe)
+powershell -ExecutionPolicy Bypass -File native\scripts\build-installer-native.ps1 -Configuration Release
+
+# Run head-to-head live GUI benchmark
+powershell -ExecutionPolicy Bypass -File native\scripts\benchmark-compare.ps1 -SteadySeconds 6
 ```
 
-The Release executable is in `bin\Release\net10.0-windows\Mmoni.exe`.
+The native installer (`Mmoni-Setup-2.0.0-win-x64-native.exe`) is a drop-in upgrade over Mmoni v1.0.0:
+- Installs cleanly to `C:\Program Files\Mmoni` (same `AppId`, preserves `%LOCALAPPDATA%\Mmoni\settings.json`)
+- Registers **Windows Task Scheduler** via native COM (`ITaskService`) for UAC-free Administrator startup at sign-in
+- Gracefully exits any running instance during upgrades/uninstalls via `--exit`
 
-## Overlay controls
+## Overlay Controls
 
-- The always-on-top mini pill displays CPU and GPU telemetry and expands on hover (**Hover Peek**) or click (**Dashboard**). Drag the pill or expanded header to move it.
-- Right-click the Mmoni tray icon to show/hide the overlay, switch visual style, choose collapsed pill metrics, adjust history range, switch GPU, toggle **Start with Windows (Admin)**, or exit. Double-click the tray icon (or launch Mmoni again from the Start Menu) to show the overlay.
-- Use **Automatic** GPU selection to prefer NVIDIA or AMD adapters over Intel integrated graphics when available. Polling pauses automatically while the overlay is hidden, in fullscreen apps, or when the session is locked.
+- **3-State Island**: Minimal pill expands on hover (**Hover Peek**) or click (**Full Dashboard** with dual Catmull-Rom charts, session Peak/Avg, and interactive hover scrubbing). Drag the pill or dashboard header to move across multi-DPI monitors.
+- **Tray Menu**: Right-click the tray icon to toggle visibility, switch visual style (**Liquid Glass** / **Precision Dark**), choose pill metrics (**Temp + Power** / **Temp + Load** / **Temp only**), adjust history range (`60s` / `5m` / `15m`), pick GPU, toggle **Hover Peek**, **Auto-hide in fullscreen**, **Click-through**, **Start with Windows (Admin)**, or exit. Double-click the tray icon (or re-launch Mmoni) to show the overlay.
 
-## Sensor access
+## Hardware & Sensor Access
 
-An em dash indicates an unavailable reading. Available sensors depend on the hardware, graphics driver, and process privileges.
+- **CPU**: Modern Intel (Core / Core Ultra) via embedded signed `IntelMSR.bin` and AMD Ryzen (Zen 1–5) via `AMDFamily17.bin` (from official [PawnIO.Modules v0.2.2](https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.2)), paired with Windows PDH English counters (`% Processor Utility` & `% Processor Performance`) for load and effective clock.
+- **GPU**: NVIDIA (`nvml.dll` primary + `nvapi64.dll` fallback), AMD (`amdadlx64.dll` ADLX), and Intel Arc / Iris Xe (`ControlLib.dll` IGCL + iGPU-only RAPL PP1 fallback), all dynamically loaded from `System32` with per-adapter `CfgMgr32` D3 sleep guard.
+- For CPU package temperature and power sensors on Windows 11, install the official signed PawnIO driver: [PawnIO releases](https://github.com/namazso/PawnIO.Setup/releases).
 
-Mmoni requests Administrator privileges via `app.manifest` and uses Windows Task Scheduler (`RunLevel: HighestAvailable`) for UAC-free startup at sign-in. For Intel/AMD CPU package temperature and power sensors on modern Windows, install the official PawnIO driver: [PawnIO releases](https://github.com/namazso/PawnIO.Setup/releases) · [LibreHardwareMonitor sensor access](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor#administrator-rights)
+## Legacy v1 (.NET 10 / WPF)
 
-Settings and saved overlay position are stored per user under `%LOCALAPPDATA%\Mmoni\settings.json`.
+The original v1 WPF project (`Mmoni.csproj`) remains in the repository root for historical reference and head-to-head benchmarking.
