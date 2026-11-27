@@ -8,6 +8,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Force static CRT (/MT) so Mmoni.exe has zero MSVC runtime DLL dependencies.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+set(MMONI_GENERATED_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(resources/app.manifest.in "${MMONI_GENERATED_RESOURCES}/app.manifest" @ONLY)
+configure_file(resources/app_bench.manifest.in "${MMONI_GENERATED_RESOURCES}/app_bench.manifest" @ONLY)
+set_property(SOURCE resources/Mmoni.rc APPEND PROPERTY
+    OBJECT_DEPENDS "${MMONI_GENERATED_RESOURCES}/app.manifest")
+set_property(SOURCE resources/MmoniBench.rc APPEND PROPERTY
+    OBJECT_DEPENDS "${MMONI_GENERATED_RESOURCES}/app_bench.manifest")
+
 add_executable(Mmoni WIN32
     src/main.cpp
     src/platform/settings.cpp
@@ -36,6 +44,7 @@ target_include_directories(Mmoni PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/resources
+    ${MMONI_GENERATED_RESOURCES}
 )
 
 target_compile_definitions(Mmoni PRIVATE
@@ -49,6 +58,8 @@ target_compile_definitions(Mmoni PRIVATE
     MMONI_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
     MMONI_VERSION_MINOR=${PROJECT_VERSION_MINOR}
     MMONI_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    MMONI_PRODUCT_VERSION=\"${PROJECT_VERSION}\"
+    MMONI_FILE_VERSION=\"${PROJECT_VERSION}.0\"
 )
 
 target_compile_options(Mmoni PRIVATE
@@ -151,6 +162,7 @@ target_include_directories(MmoniBench PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/resources
+    ${MMONI_GENERATED_RESOURCES}
 )
 target_compile_definitions(MmoniBench PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A00000C

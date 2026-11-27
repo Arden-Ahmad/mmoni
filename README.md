@@ -10,7 +10,7 @@ Mmoni is a native Windows 11 overlay for live CPU and GPU temperature, power, lo
 
 Mmoni targets **Windows 11 22H2 or later (x64)**. The native app builds as a single executable with a statically linked C++ runtime. The release executable requests administrator access when launched.
 
-Install with `Mmoni-Setup-2.0.0-win-x64-native.exe` or [build and run the native executable](#build-from-source). After installing, launch **Mmoni** from the Start menu and look for its icon in the notification area. To start Mmoni at sign-in, select the option in the installer or enable **Start with Windows (Admin)** in the tray.
+Download the Windows x64 installer from [GitHub Releases](https://github.com/Arden-Ahmad/mmoni/releases), or [build and run the native executable](#build-from-source). After installing, launch **Mmoni** from the Start menu and look for its icon in the notification area. To start Mmoni at sign-in, select the option in the installer or enable **Start with Windows (Admin)** in the tray.
 
 Package temperature and power readings on supported Intel and AMD CPUs require the PawnIO driver. Available readings depend on your hardware and installed drivers. [Download PawnIO](https://github.com/namazso/PawnIO.Setup/releases)
 
@@ -71,7 +71,13 @@ Run `native\build\release\Mmoni.exe` to start the overlay. The packaging script 
 powershell -ExecutionPolicy Bypass -File native\scripts\build-installer-native.ps1 -Configuration Release
 ```
 
-The installer is written to `dist\Mmoni-Setup-2.0.0-win-x64-native.exe`.
+The installer is written to `dist\Mmoni-Setup-<version>-win-x64-native.exe`.
+
+### Releases
+
+GitHub Actions builds and packages the Windows installer for pull requests, pushes to `main`, and manual runs. Each successful run provides the installer and its SHA-256 checksum as artifacts.
+
+To publish a release, update the project version in [`native/CMakeLists.txt`](native/CMakeLists.txt), commit it to `main`, and push a matching tag such as `v2.1.0`. The workflow verifies the tag against the executable version and publishes the installer, checksum, and generated release notes to GitHub Releases. [Windows workflow](.github/workflows/windows.yml)
 
 ### Diagnostics
 

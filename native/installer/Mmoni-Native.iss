@@ -1,12 +1,12 @@
 ; Mmoni Native v2 Windows Installer Script (Inno Setup 6)
 ; Same AppId as v1.0.0 for seamless drop-in upgrade.
 
-#ifndef MyAppVersion
-  #define MyAppVersion "2.0.0"
-#endif
-
 #ifndef NativeExePath
   #define NativeExePath "..\build\release\Mmoni.exe"
+#endif
+
+#ifndef MyAppVersion
+  #define MyAppVersion GetStringFileInfo(NativeExePath, "ProductVersion")
 #endif
 
 #ifndef OutputDir
