@@ -25,11 +25,33 @@ constexpr float kClickThroughOpacity = 0.97f;
 
 constexpr UINT_PTR kTimerHover = 1;
 constexpr UINT_PTR kTimerAnim = 3;
+constexpr UINT_PTR kTimerPresence = 4;
+constexpr UINT_PTR kTimerOverlapDebounce = 5;
 constexpr DWORD kPeekDelayMs = 280;
 constexpr DWORD kCollapseDelayMs = 240;
 constexpr DWORD kFallbackFrameMs = 16;
 constexpr DWORD kCompositorWaitMs = 34;
+constexpr DWORD kPresencePollMs = 45;
+constexpr DWORD kOverlapDebounceMs = 80;
 constexpr double kMaxAnimationGapMs = 1000.0 / 30.0;
+
+constexpr double kMicroBarWidth = 124.0;
+constexpr double kMicroBarHeight = 3.2;
+constexpr double kMicroBarRadius = 1.6;
+constexpr float kGhostOpacity = 0.12f;
+constexpr double kDodgePadX = 10.0;
+constexpr double kDodgePadY = 8.0;
+constexpr double kUnhidePadX = 18.0;
+constexpr double kUnhidePadY = 16.0;
+constexpr double kDodgeReturnDelayMs = 120.0;
+constexpr double kTopEdgeDwellMs = 220.0;
+
+OverlayView* g_active_overlay_view = nullptr;
+
+float smoothstepf(float edge0, float edge1, float x) noexcept {
+    const float t = std::clamp((x - edge0) / std::max(1e-5f, edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
 
 bool pt_in_rect(const D2D1_RECT_F& r, float x, float y) noexcept {
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
@@ -187,8 +209,9 @@ D2D1_RECT_F OverlayView::get_chrome_rect(IslandState st) const noexcept {
     const double max_left = OverlayWindowHelper::kShadowPadLeft + std::max(0.0, kDashboardWidth - d.w);
     const double left = std::clamp(compact_cx - d.w * 0.5, OverlayWindowHelper::kShadowPadLeft, max_left);
 
-    const double max_top = OverlayWindowHelper::kShadowPadTop + std::max(0.0, kStageMaxHeight - d.h);
-    const double top = std::clamp(placement_.compact_offset_y, OverlayWindowHelper::kShadowPadTop, max_top);
+    const double base_top = placement_.target_offset_y;
+    const double max_top = base_top + std::max(0.0, kStageMaxHeight - d.h);
+    const double top = std::clamp(placement_.compact_offset_y, base_top, max_top);
 
     return {
         static_cast<float>(left),
@@ -196,6 +219,288 @@ D2D1_RECT_F OverlayView::get_chrome_rect(IslandState st) const noexcept {
         static_cast<float>(left + d.w),
         static_cast<float>(top + d.h)
     };
+}
+
+D2D1_RECT_F OverlayView::get_micro_bar_rect() const noexcept {
+    const double compact_cx = placement_.compact_offset_x + minimal_width() * 0.5;
+    const double max_left = OverlayWindowHelper::kShadowPadLeft + std::max(0.0, kDashboardWidth - kMicroBarWidth);
+    const double left = std::clamp(compact_cx - kMicroBarWidth * 0.5, OverlayWindowHelper::kShadowPadLeft, max_left);
+    const double top = placement_.top_edge_offset_y;
+    return {
+        static_cast<float>(left),
+        static_cast<float>(top),
+        static_cast<float>(left + kMicroBarWidth),
+        static_cast<float>(top + kMicroBarHeight)
+    };
+}
+
+bool OverlayView::effective_click_through() const noexcept {
+    return settings_.click_through || presence_retracted_ || reveal_input_pending_;
+}
+
+void OverlayView::sync_compositor_opacity() {
+    if (!compositor_.is_ready()) return;
+    const float base = settings_.click_through ? kClickThroughOpacity : 1.0f;
+    const float target = (!placement_.near_top_edge && cur_retract_ > 0.0005f)
+        ? lerpf(base, kGhostOpacity, cur_retract_)
+        : base;
+    if (std::fabs(target - last_compositor_opacity_) > 0.001f) {
+        last_compositor_opacity_ = target;
+        compositor_.set_opacity(target);
+    }
+}
+
+void CALLBACK OverlayView::on_win_event(
+    HWINEVENTHOOK,
+    DWORD,
+    HWND hwnd,
+    LONG id_object,
+    LONG id_child,
+    DWORD,
+    DWORD) {
+    if (!g_active_overlay_view) return;
+    if (id_object != OBJID_WINDOW || id_child != CHILDID_SELF) return;
+    if (hwnd && hwnd == g_active_overlay_view->hwnd_) return;
+    g_active_overlay_view->schedule_overlap_refresh();
+}
+
+void OverlayView::install_win_hooks() {
+    if (!hwnd_ || !visible_ || settings_.presence_mode == PresenceMode::AlwaysVisible) return;
+    constexpr DWORD flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+    if (!win_hooks_[0]) {
+        win_hooks_[0] = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, &OverlayView::on_win_event, 0, 0, flags);
+    }
+    if (!win_hooks_[1]) {
+        win_hooks_[1] = SetWinEventHook(EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZEEND, nullptr, &OverlayView::on_win_event, 0, 0, flags);
+    }
+    if (!win_hooks_[2]) {
+        win_hooks_[2] = SetWinEventHook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, nullptr, &OverlayView::on_win_event, 0, 0, flags);
+    }
+}
+
+void OverlayView::remove_win_hooks() {
+    for (auto& hook : win_hooks_) {
+        if (hook) {
+            UnhookWinEvent(hook);
+            hook = nullptr;
+        }
+    }
+    if (overlap_debounce_active_ && hwnd_) {
+        KillTimer(hwnd_, kTimerOverlapDebounce);
+        overlap_debounce_active_ = false;
+    }
+}
+
+void OverlayView::schedule_overlap_refresh() {
+    if (!hwnd_ || !visible_ || settings_.presence_mode == PresenceMode::AlwaysVisible) return;
+    if (!overlap_debounce_active_) {
+        overlap_debounce_active_ = SetTimer(hwnd_, kTimerOverlapDebounce, kOverlapDebounceMs, nullptr) != 0;
+    }
+}
+
+void OverlayView::refresh_window_overlap(bool immediate_retract) {
+    if (!hwnd_ || !visible_ || settings_.presence_mode == PresenceMode::AlwaysVisible) {
+        has_overlap_ = false;
+        sync_presence_timer();
+        if (presence_retracted_) set_retracted(false, immediate_retract);
+        return;
+    }
+
+    const bool next_overlap = OverlayWindowHelper::has_overlapping_window(hwnd_, placement_.compact_visual);
+    const bool changed = (next_overlap != has_overlap_);
+    has_overlap_ = next_overlap;
+    sync_presence_timer();
+
+    if (immediate_retract && has_overlap_ && settings_.presence_mode == PresenceMode::AutoRetract &&
+        state_ == IslandState::Minimal && !presence_summoned_ && !dragging_ && !drag_armed_) {
+        set_retracted(true, true);
+        return;
+    }
+
+    if (changed || !has_overlap_) {
+        evaluate_presence();
+    }
+}
+
+void OverlayView::sync_presence_timer() {
+    if (!hwnd_) return;
+    const bool want = visible_ && settings_.presence_mode != PresenceMode::AlwaysVisible &&
+                      (has_overlap_ || presence_retracted_ || presence_summoned_);
+    if (want && !presence_timer_active_) {
+        SetTimer(hwnd_, kTimerPresence, kPresencePollMs, nullptr);
+        presence_timer_active_ = true;
+    } else if (!want && presence_timer_active_) {
+        KillTimer(hwnd_, kTimerPresence);
+        presence_timer_active_ = false;
+    }
+}
+
+void OverlayView::set_retracted(bool retracted, bool immediate) {
+    if (retracted && (state_ != IslandState::Minimal || dragging_ || drag_armed_)) {
+        retracted = false;
+    }
+    if (presence_retracted_ == retracted && !immediate) return;
+
+    if (!retracted && presence_retracted_) reveal_input_pending_ = true;
+    presence_retracted_ = retracted;
+    if (presence_retracted_) {
+        reveal_input_pending_ = false;
+        cancel_hover();
+        hovered_chrome_ = false;
+        hovered_region_ = HitRegion::None;
+        pressed_region_ = HitRegion::None;
+        mouse_tracked_ = false;
+    }
+
+    sync_overlay_input();
+
+    const float target = presence_retracted_ ? 1.0f : 0.0f;
+    if (immediate || !hwnd_ || cur_retract_ == target) {
+        retract_animating_ = false;
+        cur_retract_ = target;
+        sync_compositor_opacity();
+        if (!morph_animating_ && !thumb_animating_) stop_vsync_pacer();
+        render_now();
+        return;
+    }
+
+    retract_from_ = cur_retract_;
+    retract_to_ = target;
+    retract_start_ms_ = now_ms();
+    retract_duration_ms_ = presence_retracted_ ? 155.0 : 210.0;
+    retract_animating_ = true;
+    start_vsync_pacer();
+    render_now();
+}
+
+void OverlayView::evaluate_presence() {
+    if (!visible_ || !hwnd_) return;
+
+    const PresenceMode mode = settings_.presence_mode;
+    if (mode == PresenceMode::AlwaysVisible || !has_overlap_) {
+        presence_summoned_ = false;
+        top_dwell_start_ms_ = 0.0;
+        dodge_leave_ms_ = 0.0;
+        if (presence_retracted_) set_retracted(false);
+        sync_presence_timer();
+        return;
+    }
+
+    if (dragging_ || drag_armed_ || state_ != IslandState::Minimal) {
+        top_dwell_start_ms_ = 0.0;
+        dodge_leave_ms_ = 0.0;
+        if (presence_retracted_) set_retracted(false);
+        return;
+    }
+
+    POINT pt{};
+    if (!GetCursorPos(&pt)) return;
+
+    const double dx = placement_.dpi_scale_x > 0.0 ? placement_.dpi_scale_x : 1.0;
+    const double dy = placement_.dpi_scale_y > 0.0 ? placement_.dpi_scale_y : 1.0;
+    const RECT& cv = placement_.compact_visual;
+
+    const int prox_x = static_cast<int>(std::lround(kDodgePadX * dx));
+    const int prox_y = static_cast<int>(std::lround(kDodgePadY * dy));
+    const int hyst_x = static_cast<int>(std::lround(kUnhidePadX * dx));
+    const int hyst_y = static_cast<int>(std::lround(kUnhidePadY * dy));
+
+    const auto padded_top = [&](LONG pad) {
+        const LONG top = cv.top - pad;
+        return placement_.near_top_edge ? std::min(top, placement_.monitor_work.top) : top;
+    };
+    const bool in_prox =
+        pt.x >= cv.left - prox_x && pt.x <= cv.right + prox_x &&
+        pt.y >= padded_top(prox_y) && pt.y <= cv.bottom + prox_y;
+    const bool in_hyst =
+        pt.x >= cv.left - hyst_x && pt.x <= cv.right + hyst_x &&
+        pt.y >= padded_top(hyst_y) && pt.y <= cv.bottom + hyst_y;
+
+    const bool alt_down = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    const bool lbtn_down = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+    const double now = now_ms();
+
+    // Top-edge dwell summon: cursor pinned to y <= monitor_work.top + 1 over the micro-bar (±12 DIPs) with no drag.
+    bool top_dwell_triggered = false;
+    if (placement_.near_top_edge && presence_retracted_ && !lbtn_down) {
+        const D2D1_RECT_F bar = get_micro_bar_rect();
+        const int pad_x = static_cast<int>(std::lround(12.0 * dx));
+        const int bar_left_px = placement_.stage_window.left + static_cast<int>(std::floor(bar.left * dx)) - pad_x;
+        const int bar_right_px = placement_.stage_window.left + static_cast<int>(std::ceil(bar.right * dx)) + pad_x;
+        const bool on_top_bezel = (pt.y <= placement_.monitor_work.top + 1) &&
+                                  (pt.y >= placement_.monitor_work.top - 2) &&
+                                  (pt.x >= bar_left_px) && (pt.x <= bar_right_px);
+        if (on_top_bezel) {
+            if (top_dwell_start_ms_ <= 0.0) {
+                top_dwell_start_ms_ = now;
+            } else if (now - top_dwell_start_ms_ >= kTopEdgeDwellMs) {
+                top_dwell_triggered = true;
+            }
+        } else {
+            top_dwell_start_ms_ = 0.0;
+        }
+    } else {
+        top_dwell_start_ms_ = 0.0;
+    }
+
+    if (mode == PresenceMode::SmartDodge) {
+        if (presence_summoned_) {
+            if (!in_hyst && !alt_down) {
+                presence_summoned_ = false;
+            }
+            if (presence_retracted_) set_retracted(false);
+            return;
+        }
+
+        if ((alt_down && in_hyst) || top_dwell_triggered) {
+            presence_summoned_ = true;
+            dodge_leave_ms_ = 0.0;
+            top_dwell_start_ms_ = 0.0;
+            set_retracted(false);
+            return;
+        }
+
+        if (!presence_retracted_) {
+            if (in_prox) {
+                dodge_leave_ms_ = 0.0;
+                set_retracted(true);
+            }
+        } else {
+            if (in_hyst) {
+                dodge_leave_ms_ = 0.0;
+            } else {
+                if (dodge_leave_ms_ <= 0.0) {
+                    dodge_leave_ms_ = now;
+                } else if (now - dodge_leave_ms_ >= kDodgeReturnDelayMs) {
+                    dodge_leave_ms_ = 0.0;
+                    set_retracted(false);
+                }
+            }
+        }
+        return;
+    }
+
+    // PresenceMode::AutoRetract
+    if (presence_summoned_) {
+        if (!in_hyst && !alt_down) {
+            presence_summoned_ = false;
+            set_retracted(true);
+        } else if (presence_retracted_) {
+            set_retracted(false);
+        }
+        return;
+    }
+
+    if ((alt_down && in_hyst) || top_dwell_triggered) {
+        presence_summoned_ = true;
+        top_dwell_start_ms_ = 0.0;
+        set_retracted(false);
+        return;
+    }
+
+    if (!presence_retracted_) {
+        set_retracted(true);
+    }
 }
 
 bool OverlayView::create(HINSTANCE instance) {
@@ -212,7 +517,7 @@ bool OverlayView::create(HINSTANCE instance) {
 
     DWORD ex_style = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP;
     if (settings_.click_through) {
-        ex_style |= WS_EX_TRANSPARENT;
+        ex_style |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
     }
 
     hwnd_ = CreateWindowExW(
@@ -235,8 +540,10 @@ bool OverlayView::create(HINSTANCE instance) {
         return false;
     }
 
+    g_active_overlay_view = this;
     hover_timer_ = CreateThreadpoolTimer(&OverlayView::on_hover_timer, this, nullptr);
-    compositor_.set_opacity(settings_.click_through ? kClickThroughOpacity : 1.0f);
+    last_compositor_opacity_ = -1.0f;
+    sync_compositor_opacity();
     place_overlay();
     return true;
 }
@@ -248,6 +555,10 @@ void OverlayView::ensure_topmost() {
 
 void OverlayView::sync_input_region(const D2D1_RECT_F& rect_dip, float radius_dip) {
     if (!hwnd_) return;
+    if (effective_click_through()) {
+        clear_input_region();
+        return;
+    }
     const double dx = placement_.dpi_scale_x > 0.0 ? placement_.dpi_scale_x : 1.0;
     const double dy = placement_.dpi_scale_y > 0.0 ? placement_.dpi_scale_y : 1.0;
 
@@ -276,6 +587,30 @@ void OverlayView::sync_input_region(const D2D1_RECT_F& rect_dip, float radius_di
     }
 }
 
+void OverlayView::clear_input_region() {
+    if (!hwnd_) return;
+    if (last_rgn_rad_ == -2) return;
+    if (SetWindowRgn(hwnd_, nullptr, FALSE) != 0) {
+        last_rgn_rect_ = {};
+        last_rgn_rad_ = -2;
+    }
+}
+
+void OverlayView::sync_overlay_input() {
+    if (!hwnd_) return;
+    if (effective_click_through()) {
+        OverlayWindowHelper::set_click_through(hwnd_, true);
+        clear_input_region();
+        return;
+    }
+    if (morph_animating_ && morph_expanding_) {
+        sync_input_region(morph_to_rect_, morph_to_r_);
+    } else {
+        sync_input_region(cur_chrome_rect_, cur_radius_);
+    }
+    OverlayWindowHelper::set_click_through(hwnd_, false);
+}
+
 bool OverlayView::recover_graphics_device(bool force) {
     const uint64_t now = GetTickCount64();
     if (!force && last_recover_ms_ != 0 && now - last_recover_ms_ < 1000ULL) {
@@ -290,7 +625,8 @@ bool OverlayView::recover_graphics_device(bool force) {
         return false;
     }
 
-    compositor_.set_opacity(settings_.click_through ? kClickThroughOpacity : 1.0f);
+    last_compositor_opacity_ = -1.0f;
+    sync_compositor_opacity();
     const int stage_w = placement_.stage_window.right - placement_.stage_window.left;
     const int stage_h = placement_.stage_window.bottom - placement_.stage_window.top;
     if (stage_w > 0 && stage_h > 0) {
@@ -310,10 +646,22 @@ void OverlayView::handle_display_change() {
     }
     if (visible_) {
         place_overlay();
+        if (settings_.presence_mode != PresenceMode::AlwaysVisible) {
+            refresh_window_overlap();
+        }
     }
 }
 
 void OverlayView::destroy() {
+    remove_win_hooks();
+    if (presence_timer_active_ && hwnd_) {
+        KillTimer(hwnd_, kTimerPresence);
+        presence_timer_active_ = false;
+    }
+    if (g_active_overlay_view == this) {
+        g_active_overlay_view = nullptr;
+    }
+
     cancel_hover();
     if (hover_timer_) {
         WaitForThreadpoolTimerCallbacks(hover_timer_, TRUE);
@@ -348,6 +696,9 @@ void OverlayView::show() {
     visible_ = true;
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     place_overlay();
+    install_win_hooks();
+    refresh_window_overlap(true);
+    sync_presence_timer();
     if (collapse_on_leave()) {
         if (cursor_over_chrome()) track_mouse_leave();
         else schedule_hover(HoverAction::Collapse);
@@ -357,13 +708,22 @@ void OverlayView::show() {
 void OverlayView::hide() {
     if (!hwnd_) return;
     visible_ = false;
+    remove_win_hooks();
+    if (presence_timer_active_) {
+        KillTimer(hwnd_, kTimerPresence);
+        presence_timer_active_ = false;
+    }
     cancel_hover();
     mouse_tracked_ = false;
     hovered_chrome_ = false;
     hovered_region_ = HitRegion::None;
     suppress_hover_until_leave_ = false;
+    presence_summoned_ = false;
+    dodge_leave_ms_ = 0.0;
+    top_dwell_start_ms_ = 0.0;
     morph_animating_ = false;
     thumb_animating_ = false;
+    retract_animating_ = false;
     stop_vsync_pacer();
     ShowWindow(hwnd_, SW_HIDE);
 }
@@ -402,6 +762,8 @@ void OverlayView::place_overlay() {
     }
 
     morph_animating_ = false;
+    retract_animating_ = false;
+    cur_retract_ = presence_retracted_ ? 1.0f : 0.0f;
     if (!thumb_animating_) stop_vsync_pacer();
     cur_chrome_rect_ = get_chrome_rect(state_);
     cur_radius_ = static_cast<float>(get_dimensions(state_).r);
@@ -410,7 +772,8 @@ void OverlayView::place_overlay() {
     cur_op_[2] = (state_ == IslandState::Dashboard) ? 1.0f : 0.0f;
     cur_dash_slide_y_ = 0.0f;
 
-    sync_input_region(cur_chrome_rect_, cur_radius_);
+    sync_compositor_opacity();
+    sync_overlay_input();
     render_now();
 }
 
@@ -420,6 +783,7 @@ void OverlayView::apply_settings(const UserSettings& updated) {
     const bool click_changed = settings_.click_through != updated.click_through;
     const bool auto_exp_changed = settings_.auto_expand_on_hover != updated.auto_expand_on_hover;
     const bool range_changed = settings_.history_range != updated.history_range;
+    const bool presence_changed = settings_.presence_mode != updated.presence_mode;
 
     settings_ = updated;
 
@@ -429,8 +793,8 @@ void OverlayView::apply_settings(const UserSettings& updated) {
             pinned_ = false;
             transition_to(IslandState::Minimal);
         }
-        OverlayWindowHelper::set_click_through(hwnd_, settings_.click_through);
-        compositor_.set_opacity(settings_.click_through ? kClickThroughOpacity : 1.0f);
+        sync_compositor_opacity();
+        sync_overlay_input();
     }
 
     if (auto_exp_changed && !settings_.auto_expand_on_hover) {
@@ -438,7 +802,21 @@ void OverlayView::apply_settings(const UserSettings& updated) {
         if (state_ == IslandState::Peek) transition_to(IslandState::Minimal);
     }
 
-    invalidate_minimal_cache();
+    if (presence_changed) {
+        presence_summoned_ = false;
+        dodge_leave_ms_ = 0.0;
+        top_dwell_start_ms_ = 0.0;
+        if (settings_.presence_mode == PresenceMode::AlwaysVisible) {
+            remove_win_hooks();
+            has_overlap_ = false;
+            sync_presence_timer();
+            set_retracted(false);
+        } else if (visible_) {
+            install_win_hooks();
+            refresh_window_overlap();
+            evaluate_presence();
+        }
+    }
 
     if (range_changed || theme_changed) {
         refresh_chart_stats();
@@ -446,6 +824,9 @@ void OverlayView::apply_settings(const UserSettings& updated) {
 
     if (theme_changed || collapsed_changed) {
         place_overlay();
+        if (visible_ && settings_.presence_mode != PresenceMode::AlwaysVisible) {
+            refresh_window_overlap();
+        }
     } else {
         render_now();
     }
@@ -453,11 +834,18 @@ void OverlayView::apply_settings(const UserSettings& updated) {
 
 void OverlayView::reset_position() {
     anchor_.reset();
+    presence_summoned_ = false;
+    dodge_leave_ms_ = 0.0;
+    top_dwell_start_ms_ = 0.0;
     if (state_ != IslandState::Minimal) {
         pinned_ = false;
         transition_to(IslandState::Minimal, true);
     }
+    set_retracted(false, true);
     place_overlay();
+    if (visible_ && settings_.presence_mode != PresenceMode::AlwaysVisible) {
+        refresh_window_overlap();
+    }
 }
 
 void OverlayView::reset_peaks() {
@@ -469,31 +857,30 @@ void OverlayView::reset_peaks() {
     }
 }
 
-void OverlayView::invalidate_minimal_cache() noexcept {
-    has_min_cache_ = false;
-}
+OverlayView::MinimalVisualKey OverlayView::minimal_visual_key() const noexcept {
+    MinimalVisualKey key{};
+    key.micro_bar = placement_.near_top_edge && presence_retracted_;
+    const auto* cpu = snapshot_ && snapshot_->cpu ? &*snapshot_->cpu : nullptr;
+    const auto* gpu = snapshot_ && snapshot_->gpu ? &*snapshot_->gpu : nullptr;
+    key.gpu_sleeping = gpu && gpu->is_sleeping;
+    if (key.gpu_sleeping) gpu = nullptr;
 
-bool OverlayView::minimal_visual_changed(const SensorSnapshot& snap) const {
-    if (!has_min_cache_) return true;
-    const int ct = quantize_opt(snap.cpu ? snap.cpu->temperature : std::nullopt, 1.0f);
-    const int cs = (settings_.collapsed_mode == CollapsedDisplayMode::TempLoad)
-        ? quantize_opt(snap.cpu ? snap.cpu->load : std::nullopt, 1.0f)
-        : (settings_.collapsed_mode == CollapsedDisplayMode::TempOnly
-            ? 0
-            : quantize_opt(snap.cpu ? snap.cpu->power : std::nullopt, 10.0f));
+    const auto temperature = [micro_bar = key.micro_bar](const ProcessorReading* sensor) -> std::optional<float> {
+        if (!sensor || !sensor->temperature || !std::isfinite(*sensor->temperature)) return std::nullopt;
+        const float value = *sensor->temperature;
+        return micro_bar ? value : std::round(value);
+    };
+    key.cpu_temperature = temperature(cpu);
+    key.gpu_temperature = temperature(gpu);
 
-    const bool gsleep = snap.gpu.has_value() && snap.gpu->is_sleeping;
-    const int gt = gsleep ? -888888 : quantize_opt(snap.gpu ? snap.gpu->temperature : std::nullopt, 1.0f);
-    const int gs = gsleep ? -888888
-        : ((settings_.collapsed_mode == CollapsedDisplayMode::TempLoad)
-            ? quantize_opt(snap.gpu ? snap.gpu->load : std::nullopt, 1.0f)
-            : (settings_.collapsed_mode == CollapsedDisplayMode::TempOnly
-                ? 0
-                : quantize_opt(snap.gpu ? snap.gpu->power : std::nullopt, 10.0f)));
-
-    return ct != last_min_cpu_t_ || cs != last_min_cpu_s_ ||
-           gt != last_min_gpu_t_ || gs != last_min_gpu_s_ ||
-           gsleep != last_min_gpu_sleep_;
+    if (!key.micro_bar && settings_.collapsed_mode != CollapsedDisplayMode::TempOnly) {
+        const bool show_load = settings_.collapsed_mode == CollapsedDisplayMode::TempLoad;
+        const Metric metric = show_load ? Metric::Load : Metric::Power;
+        const float scale = show_load ? 1.0f : 10.0f;
+        key.cpu_secondary = quantize_opt(cpu ? cpu->get(metric) : std::nullopt, scale);
+        key.gpu_secondary = quantize_opt(gpu ? gpu->get(metric) : std::nullopt, scale);
+    }
+    return key;
 }
 
 void OverlayView::refresh_chart_stats() {
@@ -518,26 +905,12 @@ void OverlayView::display_snapshot(const SensorSnapshot& snapshot) {
 
     if (!visible_) return;
 
-    if (state_ == IslandState::Minimal && !morph_animating_) {
-        if (!minimal_visual_changed(snapshot)) {
-            return; // Zero GPU/D2D churn when idle values haven't changed!
-        }
-        has_min_cache_ = true;
-        last_min_cpu_t_ = quantize_opt(snapshot.cpu ? snapshot.cpu->temperature : std::nullopt, 1.0f);
-        last_min_cpu_s_ = (settings_.collapsed_mode == CollapsedDisplayMode::TempLoad)
-            ? quantize_opt(snapshot.cpu ? snapshot.cpu->load : std::nullopt, 1.0f)
-            : (settings_.collapsed_mode == CollapsedDisplayMode::TempOnly
-                ? 0
-                : quantize_opt(snapshot.cpu ? snapshot.cpu->power : std::nullopt, 10.0f));
-        last_min_gpu_sleep_ = snapshot.gpu.has_value() && snapshot.gpu->is_sleeping;
-        last_min_gpu_t_ = last_min_gpu_sleep_ ? -888888 : quantize_opt(snapshot.gpu ? snapshot.gpu->temperature : std::nullopt, 1.0f);
-        last_min_gpu_s_ = last_min_gpu_sleep_ ? -888888
-            : ((settings_.collapsed_mode == CollapsedDisplayMode::TempLoad)
-                ? quantize_opt(snapshot.gpu ? snapshot.gpu->load : std::nullopt, 1.0f)
-                : (settings_.collapsed_mode == CollapsedDisplayMode::TempOnly
-                    ? 0
-                    : quantize_opt(snapshot.gpu ? snapshot.gpu->power : std::nullopt, 10.0f)));
-        render_now();
+    if (settings_.presence_mode != PresenceMode::AlwaysVisible && !dragging_ && !drag_armed_) {
+        refresh_window_overlap();
+    }
+
+    if (state_ == IslandState::Minimal && !morph_animating_ && !retract_animating_ &&
+        last_minimal_visual_ == minimal_visual_key()) {
         return;
     }
 
@@ -566,7 +939,7 @@ void OverlayView::track_mouse_leave() {
 
 bool OverlayView::cursor_over_chrome() const {
     POINT pt{};
-    if (!visible_ || settings_.click_through || !GetCursorPos(&pt) || WindowFromPoint(pt) != hwnd_) {
+    if (!visible_ || effective_click_through() || !GetCursorPos(&pt) || WindowFromPoint(pt) != hwnd_) {
         return false;
     }
     ScreenToClient(hwnd_, &pt);
@@ -624,7 +997,7 @@ void OverlayView::handle_hover_timer() {
     }
     cancel_hover();
 
-    if (!visible_ || settings_.click_through || drag_armed_ || dragging_) return;
+    if (!visible_ || effective_click_through() || drag_armed_ || dragging_) return;
     const bool cursor_inside = cursor_over_chrome();
     if (action == HoverAction::Peek) {
         if (state_ == IslandState::Minimal && settings_.auto_expand_on_hover &&
@@ -639,6 +1012,14 @@ void OverlayView::handle_hover_timer() {
 void OverlayView::transition_to(IslandState next, bool immediate) {
     if (state_ == next && !immediate) return;
     cancel_hover();
+
+    if (next != IslandState::Minimal && (presence_retracted_ || retract_animating_ || cur_retract_ > 0.0f)) {
+        presence_retracted_ = false;
+        reveal_input_pending_ = true;
+        retract_animating_ = false;
+        cur_retract_ = 0.0f;
+        sync_compositor_opacity();
+    }
 
     const IslandState prev = state_;
     state_ = next;
@@ -657,7 +1038,7 @@ void OverlayView::transition_to(IslandState next, bool immediate) {
 
     if (immediate || !hwnd_) {
         morph_animating_ = false;
-        if (!thumb_animating_) stop_vsync_pacer();
+        if (!thumb_animating_ && !retract_animating_) stop_vsync_pacer();
         cur_chrome_rect_ = target_rect;
         cur_radius_ = target_r;
         cur_op_[0] = (next == IslandState::Minimal) ? 1.0f : 0.0f;
@@ -693,7 +1074,7 @@ void OverlayView::transition_to(IslandState next, bool immediate) {
 }
 
 void OverlayView::tick_animations() {
-    if (!morph_animating_ && !thumb_animating_) {
+    if (!morph_animating_ && !thumb_animating_ && !retract_animating_) {
         stop_vsync_pacer();
         return;
     }
@@ -754,7 +1135,21 @@ void OverlayView::tick_animations() {
         }
     }
 
-    if (!morph_animating_ && !thumb_animating_) {
+    if (retract_animating_) {
+        retract_start_ms_ += std::max(0.0, frame_floor - std::max(retract_start_ms_, last_animation_frame_ms_));
+        const float raw_t = std::clamp(
+            static_cast<float>((now - retract_start_ms_) / std::max(1.0, retract_duration_ms_)),
+            0.0f, 1.0f);
+        const float e = cubic_ease_out(raw_t);
+        cur_retract_ = std::clamp(lerpf(retract_from_, retract_to_, e), 0.0f, 1.0f);
+        if (raw_t >= 1.0f) {
+            retract_animating_ = false;
+            cur_retract_ = retract_to_;
+        }
+        sync_compositor_opacity();
+    }
+
+    if (!morph_animating_ && !thumb_animating_ && !retract_animating_) {
         stop_vsync_pacer();
     }
 
@@ -763,20 +1158,38 @@ void OverlayView::tick_animations() {
 }
 
 void OverlayView::render_now() {
-    if (!compositor_.is_ready()) return;
+    if (!compositor_.is_ready()) {
+        last_minimal_visual_.reset();
+        return;
+    }
+
+    D2D1_RECT_F draw_rect = cur_chrome_rect_;
+    float draw_radius = cur_radius_;
+    const bool top_bar_mode = placement_.near_top_edge && cur_retract_ > 0.0005f;
+    if (top_bar_mode) {
+        const D2D1_RECT_F bar = get_micro_bar_rect();
+        draw_rect = {
+            lerpf(cur_chrome_rect_.left, bar.left, cur_retract_),
+            lerpf(cur_chrome_rect_.top, bar.top, cur_retract_),
+            lerpf(cur_chrome_rect_.right, bar.right, cur_retract_),
+            lerpf(cur_chrome_rect_.bottom, bar.bottom, cur_retract_)
+        };
+        draw_radius = std::max(1.0f, lerpf(cur_radius_, static_cast<float>(kMicroBarRadius), cur_retract_));
+    }
 
     const float dx = static_cast<float>(placement_.dpi_scale_x);
     const float dy = static_cast<float>(placement_.dpi_scale_y);
-    const bool show_backdrop = visible_ && is_glass_theme(settings_.theme);
+    const bool show_backdrop = visible_ && is_glass_theme(settings_.theme) &&
+                               (!placement_.near_top_edge || cur_retract_ < 0.72f);
     compositor_.update_backdrop(
         show_backdrop,
         settings_.theme,
         dx,
-        cur_chrome_rect_.left * dx,
-        cur_chrome_rect_.top * dy,
-        (cur_chrome_rect_.right - cur_chrome_rect_.left) * dx,
-        (cur_chrome_rect_.bottom - cur_chrome_rect_.top) * dy,
-        cur_radius_ * dx);
+        draw_rect.left * dx,
+        draw_rect.top * dy,
+        (draw_rect.right - draw_rect.left) * dx,
+        (draw_rect.bottom - draw_rect.top) * dy,
+        draw_radius * dx);
 
     OverlayRenderState st{};
     st.settings = &settings_;
@@ -795,13 +1208,17 @@ void OverlayView::render_now() {
     st.live_heartbeat_bright = live_heartbeat_bright_;
     st.hovered_region = hovered_region_;
     st.pressed_region = pressed_region_;
-    st.chrome_rect = cur_chrome_rect_;
-    st.corner_radius = cur_radius_;
-    st.minimal_opacity = cur_op_[0];
+    st.chrome_rect = draw_rect;
+    st.corner_radius = draw_radius;
+    st.minimal_opacity = top_bar_mode
+        ? (cur_op_[0] * (1.0f - smoothstepf(0.0f, 0.50f, cur_retract_)))
+        : cur_op_[0];
     st.peek_opacity = cur_op_[1];
     st.dashboard_opacity = cur_op_[2];
     st.dashboard_slide_y = cur_dash_slide_y_;
     st.seg_thumb_pos = cur_thumb_pos_;
+    st.retract_progress = cur_retract_;
+    st.retract_is_top_bar = placement_.near_top_edge;
     st.has_status_banner = has_status_banner_;
     if (has_status_banner_) {
         st.warning_text = OverlayRenderer::compute_warning_text(st.snapshot, elevated_);
@@ -815,19 +1232,36 @@ void OverlayView::render_now() {
             show_backdrop,
             settings_.theme,
             dx,
-            cur_chrome_rect_.left * dx,
-            cur_chrome_rect_.top * dy,
-            (cur_chrome_rect_.right - cur_chrome_rect_.left) * dx,
-            (cur_chrome_rect_.bottom - cur_chrome_rect_.top) * dy,
-            cur_radius_ * dx);
-        compositor_.render([&](ID2D1DeviceContext* dc, float, float) {
+            draw_rect.left * dx,
+            draw_rect.top * dy,
+            (draw_rect.right - draw_rect.left) * dx,
+            (draw_rect.bottom - draw_rect.top) * dy,
+            draw_radius * dx);
+        status = compositor_.render([&](ID2D1DeviceContext* dc, float, float) {
             renderer_.render(dc, st, layout_);
         });
+    }
+
+    if (status == RenderStatus::Ok && state_ == IslandState::Minimal && !morph_animating_ && !retract_animating_) {
+        last_minimal_visual_ = minimal_visual_key();
+    } else {
+        last_minimal_visual_.reset();
+    }
+    // Keep the full stage click-through until the restored pill frame has been submitted.
+    if (status == RenderStatus::Ok && reveal_input_pending_ && !retract_animating_ && cur_retract_ == 0.0f) {
+        reveal_input_pending_ = false;
+        sync_overlay_input();
+        if (state_ == IslandState::Minimal && cursor_over_chrome()) {
+            track_mouse_leave();
+            if (settings_.auto_expand_on_hover && !suppress_hover_until_leave_) {
+                schedule_hover(HoverAction::Peek);
+            }
+        }
     }
 }
 
 HitRegion OverlayView::hit_test(float x, float y) const noexcept {
-    if (!pt_in_rect(cur_chrome_rect_, x, y)) {
+    if (effective_click_through() || !pt_in_rect(cur_chrome_rect_, x, y)) {
         return HitRegion::None;
     }
     if (state_ == IslandState::Minimal) return HitRegion::MinimalSurface;
@@ -938,7 +1372,7 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
             return MA_NOACTIVATE;
 
         case WM_NCHITTEST: {
-            if (settings_.click_through) return HTTRANSPARENT;
+            if (effective_click_through()) return HTTRANSPARENT;
             POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             ScreenToClient(hwnd_, &pt);
             const float dip_x = static_cast<float>(pt.x / placement_.dpi_scale_x);
@@ -979,6 +1413,22 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_MOUSEMOVE: {
+            if (effective_click_through()) return 0;
+            if (!drag_armed_ && !dragging_ && state_ == IslandState::Minimal &&
+                settings_.presence_mode != PresenceMode::AlwaysVisible && !presence_summoned_) {
+                const bool alt_down = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+                if (alt_down) {
+                    presence_summoned_ = true;
+                } else {
+                    if (has_overlap_) {
+                        dodge_leave_ms_ = 0.0;
+                        set_retracted(true);
+                        return 0;
+                    }
+                    if (!hovered_chrome_) schedule_overlap_refresh();
+                }
+            }
+
             track_mouse_leave();
 
             if (drag_armed_ || dragging_) {
@@ -1116,6 +1566,10 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
 
                 place_overlay();
                 anchor_ = POINT{placement_.compact_visual.left, placement_.compact_visual.top};
+                if (settings_.presence_mode != PresenceMode::AlwaysVisible) {
+                    presence_summoned_ = true;
+                    refresh_window_overlap();
+                }
                 if (callbacks_.on_moved && anchor_.has_value()) {
                     callbacks_.on_moved(*anchor_);
                 }
@@ -1154,12 +1608,26 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
                 tick_animations();
                 return 0;
             }
+            if (wp == kTimerPresence) {
+                evaluate_presence();
+                return 0;
+            }
+            if (wp == kTimerOverlapDebounce) {
+                if (!overlap_debounce_active_) return 0;
+                KillTimer(hwnd_, kTimerOverlapDebounce);
+                overlap_debounce_active_ = false;
+                refresh_window_overlap();
+                return 0;
+            }
             break;
         }
 
         case WM_DPICHANGED: {
             if (!dragging_) {
                 place_overlay();
+                if (visible_ && settings_.presence_mode != PresenceMode::AlwaysVisible) {
+                    refresh_window_overlap();
+                }
             }
             return 0;
         }

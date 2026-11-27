@@ -1,49 +1,96 @@
 # Mmoni
 
-Mmoni is a minimal, ultra-lightweight Windows 11 desktop telemetry overlay for CPU and GPU temperature, power, load, and clocks.
+Mmoni is a native Windows 11 overlay for live CPU and GPU temperature, power, load, and clock speed. Keep a small pill on screen, hover for more readings, or open the dashboard to inspect recent history. When the overlay gets in the way, it can retract into a temperature-colored micro-bar at the top edge.
 
-**Mmoni v2** is a native **C++20 (Win32 + Windows.UI.Composition + Direct2D/DirectWrite)** rewrite with zero runtime dependencies (no `.NET`, no MSVC redistributable required) and direct modern hardware telemetry (**PawnIO + Windows PDH + NVML/NVAPI + ADLX + Intel IGCL**).
+![Mmoni's minimal pill, Hover Peek, and dashboard showing CPU and GPU telemetry and temperature history](docs/images/overlay-preview.png)
 
-## Highlights (v2 Native)
+*Native renders with sample telemetry.*
 
-- **~507 KB single executable** (`~2.16 MB` Inno Setup installer), statically linked (`/MT`)
-- **~13–15 MB Working Set** and **0.00% idle CPU** at 1 Hz polling
-- **< 1 ms sensor polling** (vs ~327 ms with LibreHardwareMonitorLib)
-- **Single-HWND Windows 11 Liquid Glass** (`HostBackdropBrush` + Direct2D/DirectWrite on the active display GPU — stays on iGPU in Optimus mode so hybrid laptops never wake a sleeping dGPU, plus **Precision Dark** no-blur theme)
-- **Compositor-paced transitions** (DirectComposition compositor clock + QPC, with the animation worker asleep when idle)
-- **True cross-process click-through** outside the visible pill/peek/dashboard bounds (`SetWindowRgn`), Aero Peek exclusion (`DWMWA_EXCLUDED_FROM_PEEK`), and Optimus/hybrid dGPU D3 sleep protection via `CfgMgr32`
+## Getting started
 
-## Build & Install (Windows 11 22H2+)
+Mmoni targets **Windows 11 22H2 or later (x64)**. The native app builds as a single executable with a statically linked C++ runtime. The release executable requests administrator access when launched.
 
-Requires **Visual Studio 2022/2026 C++ Build Tools** (with Windows 11 SDK) and optionally **[Inno Setup 6](https://jrsoftware.org/isinfo.php)** for packaging.
+Install with `Mmoni-Setup-2.0.0-win-x64-native.exe` or [build and run the native executable](#build-from-source). After installing, launch **Mmoni** from the Start menu and look for its icon in the notification area. To start Mmoni at sign-in, select the option in the installer or enable **Start with Windows (Admin)** in the tray.
+
+Package temperature and power readings on supported Intel and AMD CPUs require the PawnIO driver. Available readings depend on your hardware and installed drivers. [Download PawnIO](https://github.com/namazso/PawnIO.Setup/releases)
+
+The native installer supports an in-place upgrade from v1 and retains `%LOCALAPPDATA%\Mmoni\settings.json`, which stores your preferences and overlay position.
+
+## Using the overlay
+
+| Action | Control |
+| --- | --- |
+| Set the pill's readings | Use **Minimal pill metrics** in the tray to choose temperature with power or load, or temperature alone. |
+| See more live readings | Hover over the pill with **Hover Peek (Auto-expand)** enabled. |
+| Inspect recent history | Click the pill or Peek to open the dashboard. Switch between **Temp**, **Power**, **Load**, and **Clock**, then hover over a chart to inspect an earlier reading. |
+| Change the history window | Click the range button in the dashboard or use **History range** in the tray. Choose 60 seconds, 5 minutes, or 15 minutes. |
+| Move or collapse the overlay | Drag the pill, Peek, or dashboard header to move it between monitors. Click the dashboard header or collapse button to return to the pill. |
+
+The dashboard shows session peaks alongside averages for the selected history window. It opens pinned. Unpin it to let it collapse when the pointer leaves. Clear session peaks from the tray or by double-clicking a chart or its card.
+
+Right-click the tray icon for **Show overlay**, **Visual style**, **GPU**, **Click-through**, **Auto-hide in fullscreen**, and **Reset position**. Visual styles include Liquid Glass, Fluent Acrylic, Chromatic Prism, and Precision Dark.
+
+### Overlay behavior
+
+Choose a mode under **Overlay behavior** in the tray.
+
+| Mode | What happens when an app window overlaps the pill's position |
+| --- | --- |
+| **Smart Dodge** (default) | Retracts when the pointer approaches. The pill returns after the pointer moves away. |
+| **Auto-Retract** | Retracts as soon as Mmoni detects an overlap. The pill returns when the overlap clears. |
+| **Always visible** | Keeps the pill visible over other windows. The separate fullscreen auto-hide setting still applies. |
+
+Near the top edge, a retracted pill becomes a thin, click-through **micro-bar**. Its left and right colors track CPU and GPU temperature. Away from the top edge, the pill dims and passes clicks to the app underneath.
+
+![The micro-bar on dark and light title bars, with a cyan CPU accent and a lavender GPU accent](docs/images/micro-bar.png)
+
+To reveal the pill while it overlaps another window, hold **Alt** and move the pointer to the pill's position. At the top edge, you can also rest the pointer over the micro-bar briefly.
+
+## Hardware telemetry
+
+| Hardware | Sensor sources |
+| --- | --- |
+| **Intel and AMD CPUs** | [PawnIO modules](https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.2) for supported package readings and Windows PDH counters for load and effective clock. |
+| **NVIDIA GPUs** | NVML with an NVAPI fallback. |
+| **AMD GPUs** | AMD ADLX. |
+| **Intel GPUs** | Intel Graphics Control Library (IGCL), with a RAPL GT power fallback on supported integrated GPUs. |
+
+Mmoni polls sensors once per second while the overlay is active. GPU polling checks the adapter's power state. A sleeping GPU can appear as **Idle** or **D3** in the overlay.
+
+## Build from source
+
+Use Visual Studio 2022 or 2026 with the **Desktop development with C++** workload and a Windows 11 SDK. The build script uses the MSVC, CMake, and Ninja tools from that installation. Run the commands below from the repository root.
 
 ```powershell
-# Build native Release binary (native\build\release\Mmoni.exe)
 powershell -ExecutionPolicy Bypass -File native\scripts\build-native.ps1 -Configuration Release
+```
 
-# Build Release binary + single native installer (dist\Mmoni-Setup-2.0.0-win-x64-native.exe)
+Run `native\build\release\Mmoni.exe` to start the overlay. The packaging script below requires [Inno Setup 6](https://jrsoftware.org/inno-setup).
+
+```powershell
 powershell -ExecutionPolicy Bypass -File native\scripts\build-installer-native.ps1 -Configuration Release
+```
 
-# Run head-to-head live GUI benchmark
+The installer is written to `dist\Mmoni-Setup-2.0.0-win-x64-native.exe`.
+
+### Diagnostics
+
+```powershell
+# Print three live sensor samples
+.\native\build\release\Mmoni.exe --sensor-test --samples 3
+
+# Measure native GUI startup, memory, and idle CPU usage
 powershell -ExecutionPolicy Bypass -File native\scripts\benchmark-compare.ps1 -SteadySeconds 6
 ```
 
-The native installer (`Mmoni-Setup-2.0.0-win-x64-native.exe`) is a drop-in upgrade over Mmoni v1.0.0:
-- Installs cleanly to `C:\Program Files\Mmoni` (same `AppId`, preserves `%LOCALAPPDATA%\Mmoni\settings.json`)
-- Registers **Windows Task Scheduler** via native COM (`ITaskService`) for UAC-free Administrator startup at sign-in
-- Gracefully exits any running instance during upgrades/uninstalls via `--exit`
+The benchmark requires a Release build and stops a running Mmoni instance before sampling.
 
-## Overlay Controls
+## Project layout
 
-- **3-State Island**: Minimal pill expands on hover (**Hover Peek**) or click (**Full Dashboard** with dual Catmull-Rom charts, session Peak/Avg, and interactive hover scrubbing). Drag the pill or dashboard header to move across multi-DPI monitors.
-- **Tray Menu**: Right-click the tray icon to toggle visibility, switch visual style (**Liquid Glass** / **Precision Dark**), choose pill metrics (**Temp + Power** / **Temp + Load** / **Temp only**), adjust history range (`60s` / `5m` / `15m`), pick GPU, toggle **Hover Peek**, **Auto-hide in fullscreen**, **Click-through**, **Start with Windows (Admin)**, or exit. Double-click the tray icon (or re-launch Mmoni) to show the overlay.
-
-## Hardware & Sensor Access
-
-- **CPU**: Modern Intel (Core / Core Ultra) via embedded signed `IntelMSR.bin` and AMD Ryzen (Zen 1–5) via `AMDFamily17.bin` (from official [PawnIO.Modules v0.2.2](https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.2)), paired with Windows PDH English counters (`% Processor Utility` & `% Processor Performance`) for load and effective clock.
-- **GPU**: NVIDIA (`nvml.dll` primary + `nvapi64.dll` fallback), AMD (`amdadlx64.dll` ADLX), and Intel Arc / Iris Xe (`ControlLib.dll` IGCL + iGPU-only RAPL PP1 fallback), all dynamically loaded from `System32` with per-adapter `CfgMgr32` D3 sleep guard.
-- For CPU package temperature and power sensors on Windows 11, install the official signed PawnIO driver: [PawnIO releases](https://github.com/namazso/PawnIO.Setup/releases).
-
-## Legacy v1 (.NET 10 / WPF)
-
-The original v1 WPF project (`Mmoni.csproj`) remains in the repository root for historical reference and head-to-head benchmarking.
+| Path | Contents |
+| --- | --- |
+| [`native/src/ui`](native/src/ui) | Direct2D rendering, Windows composition, charts, and overlay behavior. |
+| [`native/src/sensors`](native/src/sensors) | CPU and GPU providers, polling, and power-state checks. |
+| [`native/src/app`](native/src/app) and [`native/src/platform`](native/src/platform) | Tray controls, settings, window placement, and startup integration. |
+| [`native/scripts`](native/scripts) and [`native/installer`](native/installer) | Build, packaging, and benchmarking. |
+| [`Mmoni.csproj`](Mmoni.csproj) | The legacy v1 WPF application for .NET 10. |

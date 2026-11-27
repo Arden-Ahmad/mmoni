@@ -27,6 +27,11 @@ constexpr D2D1_COLOR_F lerp_color(D2D1_COLOR_F a, D2D1_COLOR_F b, float t) noexc
     };
 }
 
+float smoothstepf(float edge0, float edge1, float x) noexcept {
+    const float t = std::clamp((x - edge0) / std::max(1e-5f, edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 constexpr D2D1_COLOR_F kTextColor = argb(255, 244, 246, 251);
 constexpr D2D1_COLOR_F kPowerColor = argb(255, 220, 227, 242);
 constexpr D2D1_COLOR_F kSubtleColor = argb(255, 195, 204, 224);
@@ -588,6 +593,90 @@ void OverlayRenderer::draw_glass_border(
     }
 }
 
+void OverlayRenderer::draw_retracted_bar(
+    ID2D1DeviceContext* dc,
+    const OverlayRenderState& st,
+    const ThermalAccent& cpu_accent,
+    const ThermalAccent& gpu_accent,
+    float opacity) const {
+
+    if (opacity <= 0.01f) return;
+    const D2D1_RECT_F cr = st.chrome_rect;
+    const float cw = cr.right - cr.left;
+    const float ch = cr.bottom - cr.top;
+    if (cw <= 4.0f || ch <= 1.0f) return;
+
+    const bool gpu_sleep = st.snapshot && st.snapshot->gpu && st.snapshot->gpu->is_sleeping;
+    constexpr float kCoreInset = 0.35f;
+    constexpr float kCoreHeight = 1.85f;
+    constexpr float kHaloRadiusY = 5.5f;
+    const float core_top = cr.top + kCoreInset;
+    const float core_bottom = std::min(cr.bottom, core_top + kCoreHeight);
+    const float core_center_y = (core_top + core_bottom) * 0.5f;
+    const float halo_radius_x = cw * 0.40f;
+    const D2D1_RECT_F halo_bounds{
+        cr.left - cw * 0.10f, cr.top, cr.right + cw * 0.10f, core_center_y + kHaloRadiusY
+    };
+
+    const auto draw_halo = [&](float center_x, D2D1_COLOR_F color, float strength) {
+        const float alpha = strength * opacity;
+        const D2D1_GRADIENT_STOP stops[] = {
+            {0.00f, with_alpha(color, alpha)},
+            {0.40f, with_alpha(color, alpha * 0.50f)},
+            {0.72f, with_alpha(color, alpha * 0.12f)},
+            {1.00f, with_alpha(color, 0.0f)}
+        };
+        ComPtr<ID2D1GradientStopCollection> gradient;
+        if (FAILED(dc->CreateGradientStopCollection(stops, _countof(stops), &gradient))) return;
+
+        ComPtr<ID2D1RadialGradientBrush> brush;
+        const auto props = D2D1::RadialGradientBrushProperties(
+            {center_x, core_center_y}, {0.0f, 0.0f}, halo_radius_x, kHaloRadiusY);
+        if (SUCCEEDED(dc->CreateRadialGradientBrush(props, gradient.Get(), &brush))) {
+            dc->FillRectangle(halo_bounds, brush.Get());
+        }
+    };
+    draw_halo(cr.left + cw * 0.30f, cpu_accent.color, 0.23f + 0.12f * cpu_accent.heat);
+    draw_halo(cr.left + cw * 0.70f, gpu_accent.color, gpu_sleep ? 0.08f : 0.23f + 0.12f * gpu_accent.heat);
+
+    const auto draw_strip = [&](const D2D1_RECT_F& rect, const auto& stops) {
+        ComPtr<ID2D1GradientStopCollection> gradient;
+        if (FAILED(dc->CreateGradientStopCollection(stops, _countof(stops), &gradient))) return;
+
+        ComPtr<ID2D1LinearGradientBrush> brush;
+        const auto props = D2D1::LinearGradientBrushProperties(
+            {rect.left, rect.top}, {rect.right, rect.top});
+        if (SUCCEEDED(dc->CreateLinearGradientBrush(props, gradient.Get(), &brush))) {
+            const float radius = (rect.bottom - rect.top) * 0.5f;
+            dc->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), brush.Get());
+        }
+    };
+
+    // The narrow dark backing preserves the edge over light title bars.
+    constexpr auto kContrast = argb(255, 18, 23, 37);
+    const D2D1_GRADIENT_STOP contrast_stops[] = {
+        {0.00f, with_alpha(kContrast, 0.0f)},
+        {0.15f, with_alpha(kContrast, opacity * 0.44f)},
+        {0.85f, with_alpha(kContrast, opacity * 0.44f)},
+        {1.00f, with_alpha(kContrast, 0.0f)}
+    };
+    draw_strip({cr.left, cr.top, cr.right, std::min(cr.bottom, core_bottom + 0.8f)}, contrast_stops);
+
+    const float cpu_core = (0.96f + 0.04f * cpu_accent.heat) * opacity;
+    const float gpu_core = (gpu_sleep ? 0.60f : 0.96f + 0.04f * gpu_accent.heat) * opacity;
+    const D2D1_GRADIENT_STOP core_stops[] = {
+        {0.00f, with_alpha(cpu_accent.color, 0.0f)},
+        {0.10f, with_alpha(cpu_accent.color, cpu_core * 0.55f)},
+        {0.23f, with_alpha(cpu_accent.color, cpu_core)},
+        {0.42f, with_alpha(cpu_accent.color, cpu_core)},
+        {0.58f, with_alpha(gpu_accent.color, gpu_core)},
+        {0.77f, with_alpha(gpu_accent.color, gpu_core)},
+        {0.90f, with_alpha(gpu_accent.color, gpu_core * 0.55f)},
+        {1.00f, with_alpha(gpu_accent.color, 0.0f)}
+    };
+    draw_strip({cr.left, core_top, cr.right, core_bottom}, core_stops);
+}
+
 void OverlayRenderer::render(ID2D1DeviceContext* dc, const OverlayRenderState& st, DashboardLayout& out_layout) const {
     if (!dc || !ctx_ || !st.settings) return;
 
@@ -597,7 +686,7 @@ void OverlayRenderer::render(ID2D1DeviceContext* dc, const OverlayRenderState& s
     const D2D1_RECT_F cr = st.chrome_rect;
     const float cw = cr.right - cr.left;
     const float ch = cr.bottom - cr.top;
-    if (cw <= 4.0f || ch <= 4.0f) return;
+    if (cw <= 1.0f || ch <= 1.0f) return;
 
     out_layout = compute_dashboard_layout(cr, st.has_status_banner);
 
@@ -607,83 +696,114 @@ void OverlayRenderer::render(ID2D1DeviceContext* dc, const OverlayRenderState& s
     const ThermalAccent cpu_accent = thermal_edge_accent(cpu_temp, false, false, s);
     const ThermalAccent gpu_accent = thermal_edge_accent(gpu_temp, true, gpu_sleep, s);
 
-    // 1) Soft outer drop shadow
-    draw_shadow(dc, cr, st.corner_radius, is_glass, st.state);
+    const float pill_vis = st.retract_is_top_bar
+        ? (1.0f - smoothstepf(0.42f, 0.92f, st.retract_progress))
+        : 1.0f;
+    const float bar_vis = st.retract_is_top_bar
+        ? smoothstepf(0.28f, 0.90f, st.retract_progress)
+        : 0.0f;
 
-    // 2) Draw the state-aware tint over the compositor backdrop or the Precision Dark surface.
-    const D2D1_COLOR_F surface_color = resolve_surface_color(st, theme);
-    const D2D1_ROUNDED_RECT outer_rr = D2D1::RoundedRect(cr, st.corner_radius, st.corner_radius);
-    ComPtr<ID2D1SolidColorBrush> surface_brush;
-    dc->CreateSolidColorBrush(surface_color, &surface_brush);
-    if (surface_brush) {
-        dc->FillRoundedRectangle(outer_rr, surface_brush.Get());
-    }
-
-    // 3) Clipped inner content (ambient thermal glows, acrylic grain, curved double rim, and 3 state surfaces)
-    ComPtr<ID2D1RoundedRectangleGeometry> clip_geom;
-    const D2D1_RECT_F inner_r{cr.left + 1.0f, cr.top + 1.0f, cr.right - 1.0f, cr.bottom - 1.0f};
-    const float inner_rad = std::max(0.5f, st.corner_radius - 1.0f);
-    ctx_->d2d_factory()->CreateRoundedRectangleGeometry(D2D1::RoundedRect(inner_r, inner_rad, inner_rad), &clip_geom);
-
-    if (clip_geom) {
-        dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clip_geom.Get()), nullptr);
-    }
-
-    if (is_glass) {
-        auto draw_corner_glow = [&](float cx_frac, D2D1_COLOR_F base, float alpha) {
-            D2D1_GRADIENT_STOP stops[2] = {
-                {0.0f, {base.r, base.g, base.b, alpha}},
-                {1.0f, {base.r, base.g, base.b, 0.0f}}
-            };
-            ComPtr<ID2D1GradientStopCollection> scol;
-            if (SUCCEEDED(dc->CreateGradientStopCollection(stops, 2, &scol)) && scol) {
-                const D2D1_POINT_2F center{cr.left + cw * cx_frac, cr.top + ch * 0.16f};
-                ComPtr<ID2D1RadialGradientBrush> rbrush;
-                if (SUCCEEDED(dc->CreateRadialGradientBrush(
-                        D2D1::RadialGradientBrushProperties(center, {0, 0}, cw * 0.56f, ch * 0.72f),
-                        scol.Get(), &rbrush)) && rbrush) {
-                    dc->FillRectangle(cr, rbrush.Get());
-                }
-            }
-        };
-
-        const float theme_glow = (theme == VisualTheme::FluentAcrylic) ? 0.65f
-                               : (theme == VisualTheme::ChromaticPrism ? 1.15f : 1.0f);
-        const float glow_mul = theme_glow * (1.0f - 0.26f * st.minimal_opacity);
-        const float cpu_glow_a = ((44.0f + 24.0f * cpu_accent.heat) / 255.0f) * glow_mul;
-        const float gpu_glow_a = gpu_sleep
-            ? ((20.0f / 255.0f) * glow_mul)
-            : (((46.0f + 24.0f * gpu_accent.heat) / 255.0f) * glow_mul);
-
-        draw_corner_glow(0.14f, cpu_accent.color, cpu_glow_a);
-        draw_corner_glow(0.86f, gpu_accent.color, gpu_glow_a);
-
-        // Tactile micro-grain texture for Fluent Acrylic (cached GPU tile, 0% idle cost).
-        if (theme == VisualTheme::FluentAcrylic) {
-            draw_acrylic_grain(dc, cr, 0.085f);
+    if (pill_vis > 0.01f && ch > 4.0f) {
+        const bool use_fade_layer = pill_vis < 0.99f;
+        if (use_fade_layer) {
+            dc->PushLayer(
+                D2D1::LayerParameters(
+                    D2D1::InfiniteRect(),
+                    nullptr,
+                    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                    D2D1::IdentityMatrix(),
+                    pill_vis),
+                nullptr);
         }
 
-        // Animated curved double specular rim (blooms smoothly as Peek / Dashboard opens).
-        draw_curved_double_rim(dc, st, theme);
+        // 1) Soft outer drop shadow
+        if (ch >= 12.0f) {
+            draw_shadow(dc, cr, st.corner_radius, is_glass, st.state);
+        }
+
+        // 2) Draw the state-aware tint over the compositor backdrop or the Precision Dark surface.
+        const D2D1_COLOR_F surface_color = resolve_surface_color(st, theme);
+        const D2D1_ROUNDED_RECT outer_rr = D2D1::RoundedRect(cr, st.corner_radius, st.corner_radius);
+        ComPtr<ID2D1SolidColorBrush> surface_brush;
+        dc->CreateSolidColorBrush(surface_color, &surface_brush);
+        if (surface_brush) {
+            dc->FillRoundedRectangle(outer_rr, surface_brush.Get());
+        }
+
+        // 3) Clipped inner content (ambient thermal glows, acrylic grain, curved double rim, and 3 state surfaces)
+        ComPtr<ID2D1RoundedRectangleGeometry> clip_geom;
+        const D2D1_RECT_F inner_r{cr.left + 1.0f, cr.top + 1.0f, cr.right - 1.0f, cr.bottom - 1.0f};
+        const float inner_rad = std::max(0.5f, st.corner_radius - 1.0f);
+        ctx_->d2d_factory()->CreateRoundedRectangleGeometry(D2D1::RoundedRect(inner_r, inner_rad, inner_rad), &clip_geom);
+
+        if (clip_geom) {
+            dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clip_geom.Get()), nullptr);
+        }
+
+        if (is_glass) {
+            auto draw_corner_glow = [&](float cx_frac, D2D1_COLOR_F base, float alpha) {
+                D2D1_GRADIENT_STOP stops[2] = {
+                    {0.0f, {base.r, base.g, base.b, alpha}},
+                    {1.0f, {base.r, base.g, base.b, 0.0f}}
+                };
+                ComPtr<ID2D1GradientStopCollection> scol;
+                if (SUCCEEDED(dc->CreateGradientStopCollection(stops, 2, &scol)) && scol) {
+                    const D2D1_POINT_2F center{cr.left + cw * cx_frac, cr.top + ch * 0.16f};
+                    ComPtr<ID2D1RadialGradientBrush> rbrush;
+                    if (SUCCEEDED(dc->CreateRadialGradientBrush(
+                            D2D1::RadialGradientBrushProperties(center, {0, 0}, cw * 0.56f, ch * 0.72f),
+                            scol.Get(), &rbrush)) && rbrush) {
+                        dc->FillRectangle(cr, rbrush.Get());
+                    }
+                }
+            };
+
+            const float theme_glow = (theme == VisualTheme::FluentAcrylic) ? 0.65f
+                                   : (theme == VisualTheme::ChromaticPrism ? 1.15f : 1.0f);
+            const float glow_mul = theme_glow * (1.0f - 0.26f * st.minimal_opacity);
+            const float cpu_glow_a = ((44.0f + 24.0f * cpu_accent.heat) / 255.0f) * glow_mul;
+            const float gpu_glow_a = gpu_sleep
+                ? ((20.0f / 255.0f) * glow_mul)
+                : (((46.0f + 24.0f * gpu_accent.heat) / 255.0f) * glow_mul);
+
+            draw_corner_glow(0.14f, cpu_accent.color, cpu_glow_a);
+            draw_corner_glow(0.86f, gpu_accent.color, gpu_glow_a);
+
+            // Tactile micro-grain texture for Fluent Acrylic (cached GPU tile, 0% idle cost).
+            if (theme == VisualTheme::FluentAcrylic) {
+                draw_acrylic_grain(dc, cr, 0.085f);
+            }
+
+            // Animated curved double specular rim (blooms smoothly as Peek / Dashboard opens).
+            draw_curved_double_rim(dc, st, theme);
+        }
+
+        // Draw visible state surfaces (with crossfade opacity during transitions)
+        if (st.minimal_opacity > 0.01f) {
+            draw_minimal(dc, st);
+        }
+        if (st.peek_opacity > 0.01f) {
+            draw_peek(dc, st);
+        }
+        if (st.dashboard_opacity > 0.01f) {
+            draw_dashboard(dc, st, out_layout);
+        }
+
+        if (clip_geom) {
+            dc->PopLayer();
+        }
+
+        // 4) Crisp 1px glass border + thermal-reactive or iridescent prism edge accent
+        draw_glass_border(dc, st, theme, cpu_accent, gpu_accent);
+
+        if (use_fade_layer) {
+            dc->PopLayer();
+        }
     }
 
-    // Draw visible state surfaces (with crossfade opacity during transitions)
-    if (st.minimal_opacity > 0.01f) {
-        draw_minimal(dc, st);
+    if (bar_vis > 0.01f) {
+        draw_retracted_bar(dc, st, cpu_accent, gpu_accent, bar_vis);
     }
-    if (st.peek_opacity > 0.01f) {
-        draw_peek(dc, st);
-    }
-    if (st.dashboard_opacity > 0.01f) {
-        draw_dashboard(dc, st, out_layout);
-    }
-
-    if (clip_geom) {
-        dc->PopLayer();
-    }
-
-    // 4) Crisp 1px glass border + thermal-reactive or iridescent prism edge accent
-    draw_glass_border(dc, st, theme, cpu_accent, gpu_accent);
 }
 
 void OverlayRenderer::draw_minimal(ID2D1DeviceContext* dc, const OverlayRenderState& st) const {

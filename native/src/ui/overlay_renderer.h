@@ -80,6 +80,8 @@ struct OverlayRenderState {
     float dashboard_opacity = 0.0f;
     float dashboard_slide_y = 0.0f;
     float seg_thumb_pos = 0.0f; // 0..3 continuous
+    float retract_progress = 0.0f; // 0 = normal pill, 1 = fully retracted
+    bool retract_is_top_bar = false;
     bool has_status_banner = false;
     std::wstring warning_text;
 };
@@ -109,6 +111,12 @@ private:
         VisualTheme theme,
         const ThermalAccent& cpu_accent,
         const ThermalAccent& gpu_accent) const;
+    void draw_retracted_bar(
+        ID2D1DeviceContext* dc,
+        const OverlayRenderState& st,
+        const ThermalAccent& cpu_accent,
+        const ThermalAccent& gpu_accent,
+        float opacity) const;
     void draw_minimal(ID2D1DeviceContext* dc, const OverlayRenderState& st) const;
     void draw_peek(ID2D1DeviceContext* dc, const OverlayRenderState& st) const;
     void draw_dashboard(ID2D1DeviceContext* dc, const OverlayRenderState& st, const DashboardLayout& lay) const;

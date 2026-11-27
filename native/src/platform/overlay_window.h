@@ -10,10 +10,13 @@ struct OverlayPlacement {
     RECT compact_visual{};
     RECT target_visual{};
     RECT stage_window{};
+    RECT monitor_work{};
     double compact_offset_x = 0.0;
     double compact_offset_y = 0.0;
     double target_offset_x = 0.0;
     double target_offset_y = 0.0;
+    double top_edge_offset_y = 0.0;
+    bool near_top_edge = true;
     double dpi_scale_x = 1.0;
     double dpi_scale_y = 1.0;
 };
@@ -24,6 +27,7 @@ public:
     static constexpr double kShadowPadTop = 6.0;
     static constexpr double kShadowPadRight = 18.0;
     static constexpr double kShadowPadBottom = 26.0;
+    static constexpr double kTopEdgeZoneDip = 48.0;
 
     static void set_click_through(HWND hwnd, bool enabled) noexcept;
     static POINT get_position(HWND hwnd) noexcept;
@@ -38,6 +42,7 @@ public:
     static void set_bounds_topmost(HWND hwnd, int left, int top, int width, int height) noexcept;
     static void move_topmost(HWND hwnd, int left, int top) noexcept;
     static bool is_fullscreen_app_active() noexcept;
+    static bool has_overlapping_window(HWND self_hwnd, const RECT& screen_rect) noexcept;
 };
 
 } // namespace mmoni

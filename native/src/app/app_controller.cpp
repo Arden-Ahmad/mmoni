@@ -230,6 +230,24 @@ void AppController::on_tray_command(UINT cmd) {
             update_settings(next);
             break;
         }
+        case TrayCommand::PresenceAlwaysVisible: {
+            UserSettings next = settings_;
+            next.presence_mode = PresenceMode::AlwaysVisible;
+            update_settings(next);
+            break;
+        }
+        case TrayCommand::PresenceSmartDodge: {
+            UserSettings next = settings_;
+            next.presence_mode = PresenceMode::SmartDodge;
+            update_settings(next);
+            break;
+        }
+        case TrayCommand::PresenceAutoRetract: {
+            UserSettings next = settings_;
+            next.presence_mode = PresenceMode::AutoRetract;
+            update_settings(next);
+            break;
+        }
         case TrayCommand::PillTempPower: {
             UserSettings next = settings_;
             next.collapsed_mode = CollapsedDisplayMode::TempPower;

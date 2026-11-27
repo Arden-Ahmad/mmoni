@@ -1,5 +1,6 @@
 #include "platform/overlay_window.h"
 
+#include <dwmapi.h>
 #include <shellapi.h>
 #include <shellscalingapi.h>
 
@@ -10,10 +11,16 @@ namespace mmoni {
 
 void OverlayWindowHelper::set_click_through(HWND hwnd, bool enabled) noexcept {
     if (!hwnd) return;
-    LONG_PTR current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-    LONG_PTR next = enabled ? (current | WS_EX_TRANSPARENT) : (current & ~WS_EX_TRANSPARENT);
+    const LONG_PTR current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    // Cross-process click-through on Windows requires WS_EX_LAYERED paired with WS_EX_TRANSPARENT.
+    constexpr LONG_PTR kClickThroughBits = WS_EX_LAYERED | WS_EX_TRANSPARENT;
+    const LONG_PTR next = enabled
+        ? (current | kClickThroughBits)
+        : (current & ~kClickThroughBits);
     if (current != next) {
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next);
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
 }
 
@@ -90,25 +97,38 @@ OverlayPlacement OverlayWindowHelper::compute_placement(
     const int pad_b = static_cast<int>(std::llround(kShadowPadBottom * dpi_y));
 
     const int stage_left = target_left - pad_l;
-    const int stage_top = target_top - pad_t;
+    int stage_top = target_top - pad_t;
     const int stage_w = target_w + pad_l + pad_r;
-    const int stage_h = target_h + pad_t + pad_b;
+    int stage_h = target_h + pad_t + pad_b;
+
+    const bool near_top_edge = (static_cast<double>(compact_top - area.top) / dpi_y) <= kTopEdgeZoneDip;
+    double extra_top_dip = 0.0;
+    if (near_top_edge && stage_top > area.top) {
+        const int extra_top_px = stage_top - static_cast<int>(area.top);
+        stage_top = static_cast<int>(area.top);
+        stage_h += extra_top_px;
+        extra_top_dip = static_cast<double>(extra_top_px) / dpi_y;
+    }
 
     const double compact_off_x = kShadowPadLeft +
         std::clamp(static_cast<double>(compact_left - target_left) / dpi_x, 0.0,
                    std::max(0.0, target_width_dip - compact_width_dip));
-    const double compact_off_y = kShadowPadTop +
+    const double compact_off_y = kShadowPadTop + extra_top_dip +
         std::clamp(static_cast<double>(compact_top - target_top) / dpi_y, 0.0,
                    std::max(0.0, target_height_dip - compact_height_dip));
+    const double top_edge_off_y = std::max(0.0, static_cast<double>(area.top - stage_top) / dpi_y);
 
     OverlayPlacement p{};
     p.compact_visual = {compact_left, compact_top, compact_left + compact_w, compact_top + compact_h};
     p.target_visual = {target_left, target_top, target_left + target_w, target_top + target_h};
     p.stage_window = {stage_left, stage_top, stage_left + stage_w, stage_top + stage_h};
+    p.monitor_work = area;
     p.compact_offset_x = compact_off_x;
     p.compact_offset_y = compact_off_y;
     p.target_offset_x = kShadowPadLeft;
-    p.target_offset_y = kShadowPadTop;
+    p.target_offset_y = kShadowPadTop + extra_top_dip;
+    p.top_edge_offset_y = top_edge_off_y;
+    p.near_top_edge = near_top_edge;
     p.dpi_scale_x = dpi_x;
     p.dpi_scale_y = dpi_y;
     return p;
@@ -167,6 +187,77 @@ bool OverlayWindowHelper::is_fullscreen_app_active() noexcept {
            wr.top <= mi.rcMonitor.top + 2 &&
            wr.right >= mi.rcMonitor.right - 2 &&
            wr.bottom >= mi.rcMonitor.bottom - 2;
+}
+
+bool OverlayWindowHelper::has_overlapping_window(HWND self_hwnd, const RECT& screen_rect) noexcept {
+    if (screen_rect.right <= screen_rect.left || screen_rect.bottom <= screen_rect.top) {
+        return false;
+    }
+
+    struct OverlapQuery {
+        HWND self;
+        RECT rect;
+        bool found;
+    } query{self_hwnd, screen_rect, false};
+
+    EnumWindows([](HWND hwnd, LPARAM lp) -> BOOL {
+        auto* q = reinterpret_cast<OverlapQuery*>(lp);
+        if (!hwnd || hwnd == q->self) return TRUE;
+        if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return TRUE;
+
+        const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if ((ex & WS_EX_TRANSPARENT) != 0) return TRUE;
+        if ((ex & WS_EX_TOOLWINDOW) != 0 && (ex & WS_EX_APPWINDOW) == 0) return TRUE;
+        if ((ex & WS_EX_LAYERED) != 0) {
+            BYTE alpha = 255;
+            DWORD flags = 0;
+            if (GetLayeredWindowAttributes(hwnd, nullptr, &alpha, &flags) &&
+                (flags & LWA_ALPHA) != 0 && alpha == 0) {
+                return TRUE;
+            }
+        }
+
+        DWORD cloaked = 0;
+        if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked != 0) {
+            return TRUE;
+        }
+
+        wchar_t cls[128]{};
+        if (GetClassNameW(hwnd, cls, static_cast<int>(_countof(cls))) > 0) {
+            if (_wcsicmp(cls, L"Progman") == 0 ||
+                _wcsicmp(cls, L"WorkerW") == 0 ||
+                _wcsicmp(cls, L"Shell_TrayWnd") == 0 ||
+                _wcsicmp(cls, L"Shell_SecondaryTrayWnd") == 0 ||
+                _wcsicmp(cls, L"MultitaskingViewFrame") == 0 ||
+                _wcsicmp(cls, L"TaskListThumbnailWnd") == 0 ||
+                _wcsicmp(cls, L"XamlExplorerHostIslandWindow") == 0 ||
+                _wcsicmp(cls, L"Xaml_WindowedPopupClass") == 0 ||
+                _wcsicmp(cls, L"NotifyIconOverflowWindow") == 0 ||
+                _wcsicmp(cls, L"EdgeUiInputTopWndClass") == 0 ||
+                _wcsicmp(cls, L"DummyDWMListenerWindow") == 0 ||
+                _wcsicmp(cls, L"tooltips_class32") == 0 ||
+                _wcsicmp(cls, L"IME") == 0 ||
+                _wcsicmp(cls, L"MSCTFIME UI") == 0 ||
+                _wcsicmp(cls, L"Windows.UI.Core.CoreWindow") == 0) {
+                return TRUE;
+            }
+        }
+
+        RECT wr{};
+        if (FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &wr, sizeof(wr)))) {
+            if (!GetWindowRect(hwnd, &wr)) return TRUE;
+        }
+        if (wr.right <= wr.left || wr.bottom <= wr.top) return TRUE;
+
+        if (wr.left < q->rect.right && wr.right > q->rect.left &&
+            wr.top < q->rect.bottom && wr.bottom > q->rect.top) {
+            q->found = true;
+            return FALSE;
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&query));
+
+    return query.found;
 }
 
 } // namespace mmoni

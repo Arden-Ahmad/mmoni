@@ -112,6 +112,15 @@ void TrayIcon::show_context_menu(
                 static_cast<UINT>(TrayCommand::ThemePrecisionDark), L"Precision Dark (No Blur)");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(theme_menu), L"Visual style");
 
+    HMENU presence_menu = CreatePopupMenu();
+    AppendMenuW(presence_menu, MF_STRING | (settings.presence_mode == PresenceMode::SmartDodge ? MF_CHECKED : 0),
+                static_cast<UINT>(TrayCommand::PresenceSmartDodge), L"Smart Dodge (Retract on cursor)");
+    AppendMenuW(presence_menu, MF_STRING | (settings.presence_mode == PresenceMode::AutoRetract ? MF_CHECKED : 0),
+                static_cast<UINT>(TrayCommand::PresenceAutoRetract), L"Auto-Retract (Top-edge notch)");
+    AppendMenuW(presence_menu, MF_STRING | (settings.presence_mode == PresenceMode::AlwaysVisible ? MF_CHECKED : 0),
+                static_cast<UINT>(TrayCommand::PresenceAlwaysVisible), L"Always visible (Classic)");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(presence_menu), L"Overlay behavior");
+
     HMENU pill_menu = CreatePopupMenu();
     AppendMenuW(pill_menu, MF_STRING | (settings.collapsed_mode == CollapsedDisplayMode::TempPower ? MF_CHECKED : 0),
                 static_cast<UINT>(TrayCommand::PillTempPower), L"Temp + Power");

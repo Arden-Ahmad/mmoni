@@ -62,6 +62,25 @@ private:
     struct Dim { double w, h, r; };
     Dim get_dimensions(IslandState st) const noexcept;
     D2D1_RECT_F get_chrome_rect(IslandState st) const noexcept;
+    D2D1_RECT_F get_micro_bar_rect() const noexcept;
+
+    bool effective_click_through() const noexcept;
+    void sync_compositor_opacity();
+    void install_win_hooks();
+    void remove_win_hooks();
+    static void CALLBACK on_win_event(
+        HWINEVENTHOOK hook,
+        DWORD event,
+        HWND hwnd,
+        LONG id_object,
+        LONG id_child,
+        DWORD event_thread,
+        DWORD event_time);
+    void schedule_overlap_refresh();
+    void refresh_window_overlap(bool immediate_retract = false);
+    void sync_presence_timer();
+    void set_retracted(bool retracted, bool immediate = false);
+    void evaluate_presence();
 
     enum class HoverAction { None, Peek, Collapse };
     void track_mouse_leave();
@@ -81,9 +100,20 @@ private:
     void tick_animations();
     void render_now();
     void sync_input_region(const D2D1_RECT_F& rect_dip, float radius_dip);
+    void clear_input_region();
+    void sync_overlay_input();
     bool recover_graphics_device(bool force = false);
-    void invalidate_minimal_cache() noexcept;
-    bool minimal_visual_changed(const SensorSnapshot& snap) const;
+    struct MinimalVisualKey {
+        std::optional<float> cpu_temperature;
+        std::optional<float> gpu_temperature;
+        int cpu_secondary = 0;
+        int gpu_secondary = 0;
+        bool gpu_sleeping = false;
+        bool micro_bar = false;
+
+        bool operator==(const MinimalVisualKey&) const = default;
+    };
+    MinimalVisualKey minimal_visual_key() const noexcept;
     void refresh_chart_stats();
     HitRegion hit_test(float dip_x, float dip_y) const noexcept;
     void handle_click(HitRegion region);
@@ -168,13 +198,25 @@ private:
     float thumb_to_ = 0.0f;
     float cur_thumb_pos_ = 0.0f;
 
-    // Diff cache for zero-churn idle minimal pill updates
-    bool has_min_cache_ = false;
-    int last_min_cpu_t_ = -9999;
-    int last_min_cpu_s_ = -9999;
-    int last_min_gpu_t_ = -9999;
-    int last_min_gpu_s_ = -9999;
-    bool last_min_gpu_sleep_ = false;
+    // Smart Presence (Smart Dodge / Auto-Retract) state & animation
+    HWINEVENTHOOK win_hooks_[3]{};
+    bool overlap_debounce_active_ = false;
+    bool has_overlap_ = false;
+    bool presence_retracted_ = false;
+    bool presence_summoned_ = false;
+    bool presence_timer_active_ = false;
+    double dodge_leave_ms_ = 0.0;
+    double top_dwell_start_ms_ = 0.0;
+    bool retract_animating_ = false;
+    bool reveal_input_pending_ = false;
+    double retract_start_ms_ = 0.0;
+    double retract_duration_ms_ = 180.0;
+    float retract_from_ = 0.0f;
+    float retract_to_ = 0.0f;
+    float cur_retract_ = 0.0f;
+    float last_compositor_opacity_ = -1.0f;
+
+    std::optional<MinimalVisualKey> last_minimal_visual_;
 
     // Last applied HWND input region (pixels) & device-lost recovery throttle
     RECT last_rgn_rect_{};

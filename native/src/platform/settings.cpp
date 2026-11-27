@@ -310,6 +310,14 @@ const char* range_to_str(TimeRange r) {
     }
 }
 
+const char* presence_to_str(PresenceMode m) {
+    switch (m) {
+        case PresenceMode::AlwaysVisible: return "AlwaysVisible";
+        case PresenceMode::AutoRetract: return "AutoRetract";
+        default: return "SmartDodge";
+    }
+}
+
 } // namespace
 
 UserSettings UserSettings::load() {
@@ -430,6 +438,19 @@ UserSettings UserSettings::load() {
                 else if (iv == 900) s.history_range = TimeRange::Minutes15;
                 else s.history_range = TimeRange::Seconds60;
             } else r.skip_value();
+        } else if (key == "PresenceMode") {
+            std::string v;
+            double n = 0;
+            if (r.parse_string(v)) {
+                if (v == "AlwaysVisible") s.presence_mode = PresenceMode::AlwaysVisible;
+                else if (v == "AutoRetract") s.presence_mode = PresenceMode::AutoRetract;
+                else s.presence_mode = PresenceMode::SmartDodge;
+            } else if (r.parse_number(n)) {
+                int iv = static_cast<int>(n);
+                if (iv == 0) s.presence_mode = PresenceMode::AlwaysVisible;
+                else if (iv == 2) s.presence_mode = PresenceMode::AutoRetract;
+                else s.presence_mode = PresenceMode::SmartDodge;
+            } else r.skip_value();
         } else if (key == "CpuWarmTemp") {
             double v = 0;
             if (r.parse_number(v) && std::isfinite(v)) s.cpu_warm_temp = static_cast<float>(v);
@@ -476,6 +497,7 @@ bool UserSettings::save(std::wstring* error_out) const {
     oss << "  \"ChartLayout\": \"" << layout_to_str(chart_layout) << "\",\n";
     oss << "  \"CollapsedMode\": \"" << collapsed_to_str(collapsed_mode) << "\",\n";
     oss << "  \"HistoryRange\": \"" << range_to_str(history_range) << "\",\n";
+    oss << "  \"PresenceMode\": \"" << presence_to_str(presence_mode) << "\",\n";
     oss << "  \"CpuWarmTemp\": " << format_json_float(cpu_warm_temp) << ",\n";
     oss << "  \"CpuHotTemp\": " << format_json_float(cpu_hot_temp) << ",\n";
     oss << "  \"GpuWarmTemp\": " << format_json_float(gpu_warm_temp) << ",\n";

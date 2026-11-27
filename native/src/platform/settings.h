@@ -18,6 +18,7 @@ struct UserSettings {
     ChartLayoutMode chart_layout = ChartLayoutMode::Split;
     CollapsedDisplayMode collapsed_mode = CollapsedDisplayMode::TempPower;
     TimeRange history_range = TimeRange::Seconds60;
+    PresenceMode presence_mode = PresenceMode::SmartDodge;
 
     float cpu_warm_temp = 80.0f;
     float cpu_hot_temp = 90.0f;

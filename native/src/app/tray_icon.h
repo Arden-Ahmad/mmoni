@@ -29,6 +29,9 @@ enum class TrayCommand : UINT {
     ExitApp = 1017,
     ThemeFluentAcrylic = 1018,
     ThemeChromaticPrism = 1019,
+    PresenceAlwaysVisible = 1020,
+    PresenceSmartDodge = 1021,
+    PresenceAutoRetract = 1022,
     GpuAuto = 1100,
     GpuFirst = 1101
 };

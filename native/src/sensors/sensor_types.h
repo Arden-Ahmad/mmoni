@@ -46,6 +46,12 @@ enum class CollapsedDisplayMode : uint8_t {
     TempPowerSpark = 3
 };
 
+enum class PresenceMode : uint8_t {
+    AlwaysVisible = 0,
+    SmartDodge = 1,
+    AutoRetract = 2
+};
+
 enum ThrottleFlags : uint32_t {
     ThrottleNone = 0,
     ThrottleThermal = 1u << 0,
