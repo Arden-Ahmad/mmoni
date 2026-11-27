@@ -2,4 +2,6 @@ bin/
 obj/
 .vs/
 *.user
+dist/
+publish/
 

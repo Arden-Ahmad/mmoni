@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Security;
 using System.Security.Principal;
 using System.Threading;
@@ -19,6 +20,9 @@ namespace Mmoni;
 
 public partial class App : Application
 {
+    private const string ShowSignalName = @"Local\Mmoni-Signal-Show";
+    private const string ExitSignalName = @"Local\Mmoni-Signal-Exit";
+
     private UserSettings _settings = new();
     private MainWindow? _overlay;
     private SensorMonitor? _monitor;
@@ -27,6 +31,10 @@ public partial class App : Application
     private Forms.ContextMenuStrip? _menu;
     private Icon? _icon;
     private Mutex? _instance;
+    private EventWaitHandle? _showSignal;
+    private EventWaitHandle? _exitSignal;
+    private RegisteredWaitHandle? _showWaitHandle;
+    private RegisteredWaitHandle? _exitWaitHandle;
     private bool _ownsInstance;
     private bool _exiting;
     private bool _userHidden;
@@ -40,11 +48,18 @@ public partial class App : Application
 
         using var identity = WindowsIdentity.GetCurrent();
         var userSid = identity.User?.Value ?? "CurrentUser";
+        var mutexName = @"Local\Mmoni-" + userSid;
+
+        if (HandleCommandLineActions(args.Args, mutexName))
+            return;
+
         var elevated = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
-        _instance = new Mutex(false, @"Local\Mmoni-" + userSid);
+        _instance = new Mutex(false, mutexName);
         try
         {
-            var timeout = args.Args.Contains("--wait-for-instance") ? TimeSpan.FromSeconds(15) : TimeSpan.Zero;
+            var timeout = args.Args.Contains("--wait-for-instance", StringComparer.OrdinalIgnoreCase)
+                ? TimeSpan.FromSeconds(15)
+                : TimeSpan.Zero;
             _ownsInstance = _instance.WaitOne(timeout);
         }
         catch (AbandonedMutexException)
@@ -54,9 +69,15 @@ public partial class App : Application
 
         if (!_ownsInstance)
         {
+            TrySignalEvent(ShowSignalName);
             Shutdown();
             return;
         }
+
+        if (elevated)
+            StartupManager.MigrateLegacyStartupIfNeeded();
+
+        RegisterInstanceSignals();
 
         _settings = UserSettings.Load();
         _overlay = new MainWindow(_settings, elevated);
@@ -100,12 +121,147 @@ public partial class App : Application
         });
     }
 
+    private bool HandleCommandLineActions(string[] args, string mutexName)
+    {
+        if (args.Contains("--enable-startup", StringComparer.OrdinalIgnoreCase))
+        {
+            var code = RunStartupCommand(enable: true);
+            Shutdown(code);
+            return true;
+        }
+
+        if (args.Contains("--disable-startup", StringComparer.OrdinalIgnoreCase))
+        {
+            var code = RunStartupCommand(enable: false);
+            Shutdown(code);
+            return true;
+        }
+
+        if (args.Contains("--exit", StringComparer.OrdinalIgnoreCase))
+        {
+            SignalRunningInstanceToExit(mutexName);
+            Shutdown(0);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static int RunStartupCommand(bool enable)
+    {
+        try
+        {
+            StartupManager.SetEnabled(enable);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError("Mmoni startup command failed: {0}", ex.Message);
+            return 1;
+        }
+    }
+
+    private static void SignalRunningInstanceToExit(string mutexName)
+    {
+        TrySignalEvent(ExitSignalName);
+
+        // Wait briefly for the running instance to dispose hardware sensors and release its mutex.
+        try
+        {
+            using var mutex = new Mutex(false, mutexName);
+            var acquired = false;
+            try
+            {
+                acquired = mutex.WaitOne(TimeSpan.FromSeconds(5));
+            }
+            catch (AbandonedMutexException)
+            {
+                acquired = true;
+            }
+            finally
+            {
+                if (acquired)
+                    mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+        }
+    }
+
+    private static void TrySignalEvent(string eventName)
+    {
+        try
+        {
+            if (EventWaitHandle.TryOpenExisting(eventName, out var handle))
+            {
+                using (handle)
+                    handle.Set();
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException or IOException)
+        {
+        }
+    }
+
+    private void RegisterInstanceSignals()
+    {
+        try
+        {
+            _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignalName);
+            _showWaitHandle = ThreadPool.RegisterWaitForSingleObject(
+                _showSignal,
+                (_, timedOut) =>
+                {
+                    if (!timedOut && !_exiting)
+                    {
+                        Dispatcher.InvokeAsync(() =>
+                        {
+                            if (_exiting)
+                                return;
+
+                            _userHidden = false;
+                            SyncVisibilityAndPolling();
+                        });
+                    }
+                },
+                state: null,
+                millisecondsTimeOutInterval: Timeout.Infinite,
+                executeOnlyOnce: false);
+
+            _exitSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ExitSignalName);
+            _exitWaitHandle = ThreadPool.RegisterWaitForSingleObject(
+                _exitSignal,
+                (_, timedOut) =>
+                {
+                    if (!timedOut && !_exiting)
+                        Dispatcher.InvokeAsync(ExitMmoni);
+                },
+                state: null,
+                millisecondsTimeOutInterval: Timeout.Infinite,
+                executeOnlyOnce: false);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            Trace.TraceWarning("Could not register instance IPC signals: {0}", ex.Message);
+        }
+    }
+
     private void CreateTray(bool elevated)
     {
         using var stream = GetResourceStream(new Uri("Assets/Mmoni.ico", UriKind.Relative))!.Stream;
         using var loadedIcon = new Icon(stream);
         _icon = (Icon)loadedIcon.Clone();
         _menu = new Forms.ContextMenuStrip();
+
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        var versionLabel = version is not null
+            ? $"Mmoni v{version.Major}.{version.Minor}.{version.Build}"
+            : "Mmoni";
+        var header = new Forms.ToolStripMenuItem(elevated ? $"{versionLabel} (Admin)" : versionLabel)
+        {
+            Enabled = false
+        };
 
         var visibility = new Forms.ToolStripMenuItem("Show overlay", null, (_, _) => ToggleOverlay());
 
@@ -149,14 +305,12 @@ public partial class App : Application
 
         var resetPeaks = new Forms.ToolStripMenuItem("Reset session peaks", null, (_, _) => _overlay!.ResetPeaks());
         var selectGpu = new Forms.ToolStripMenuItem("GPU");
-        var startup = new Forms.ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleStartup());
-        var elevate = new Forms.ToolStripMenuItem("Restart as administrator", null, (_, _) => RestartElevated())
-        {
-            Enabled = !elevated
-        };
+        var startup = new Forms.ToolStripMenuItem("Start with Windows (Admin)", null, (_, _) => ToggleStartup());
         var exit = new Forms.ToolStripMenuItem("Exit Mmoni", null, (_, _) => ExitMmoni());
 
         _menu.Items.AddRange([
+            header,
+            new Forms.ToolStripSeparator(),
             visibility,
             new Forms.ToolStripSeparator(),
             themeMenu,
@@ -170,8 +324,16 @@ public partial class App : Application
             resetPosition,
             resetPeaks,
             new Forms.ToolStripSeparator(),
-            startup,
-            elevate,
+            startup
+        ]);
+
+        if (!elevated)
+        {
+            var elevate = new Forms.ToolStripMenuItem("Restart as administrator", null, (_, _) => RestartElevated());
+            _menu.Items.Add(elevate);
+        }
+
+        _menu.Items.AddRange([
             new Forms.ToolStripSeparator(),
             exit
         ]);
@@ -194,7 +356,7 @@ public partial class App : Application
             PopulateGpuMenu(selectGpu);
         };
 
-        _tray = new Forms.NotifyIcon { Text = "Mmoni", Icon = _icon, ContextMenuStrip = _menu, Visible = true };
+        _tray = new Forms.NotifyIcon { Text = versionLabel, Icon = _icon, ContextMenuStrip = _menu, Visible = true };
         _tray.MouseDoubleClick += (_, args) =>
         {
             if (args.Button == Forms.MouseButtons.Left)
@@ -292,7 +454,7 @@ public partial class App : Application
         {
             return UserSettings.IsStartupEnabled();
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException or Win32Exception)
         {
             Trace.TraceWarning("Mmoni startup setting could not be read: {0}", exception.Message);
             return false;
@@ -305,7 +467,7 @@ public partial class App : Application
         {
             UserSettings.SetStartupEnabled(!UserSettings.IsStartupEnabled());
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException or Win32Exception)
         {
             NotifyWarning($"Could not change Windows startup. {exception.Message}");
         }
@@ -360,6 +522,12 @@ public partial class App : Application
         _exiting = true;
         SystemEvents.SessionSwitch -= OnSessionSwitch;
         _fullscreenTimer?.Stop();
+
+        _showWaitHandle?.Unregister(null);
+        _exitWaitHandle?.Unregister(null);
+        _showSignal?.Dispose();
+        _exitSignal?.Dispose();
+
         _monitor?.Dispose();
         if (_tray is not null)
         {

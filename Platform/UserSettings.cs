@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.Win32;
 using Mmoni.Monitoring;
 
 namespace Mmoni.Platform;
@@ -18,8 +17,6 @@ internal sealed record UserSettings
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() }
     };
-
-    private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     public int? Left { get; init; }
     public int? Top { get; init; }
@@ -61,23 +58,7 @@ internal sealed record UserSettings
         File.Move(temporaryPath, SettingsPath, overwrite: true);
     }
 
-    public static bool IsStartupEnabled()
-    {
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return key?.GetValue("Mmoni") is string;
-    }
+    public static bool IsStartupEnabled() => StartupManager.IsEnabled();
 
-    public static void SetStartupEnabled(bool enabled)
-    {
-        using var key = Registry.CurrentUser.CreateSubKey(RunKey);
-        if (enabled)
-        {
-            var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Executable path unavailable.");
-            key.SetValue("Mmoni", $"\"{executable}\"", RegistryValueKind.String);
-        }
-        else
-        {
-            key.DeleteValue("Mmoni", throwOnMissingValue: false);
-        }
-    }
+    public static void SetStartupEnabled(bool enabled) => StartupManager.SetEnabled(enabled);
 }
