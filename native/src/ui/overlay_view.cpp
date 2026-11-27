@@ -1,10 +1,12 @@
 #include "ui/overlay_view.h"
 #include "platform/single_instance.h"
 
+#include <dcomp.h>
 #include <dwmapi.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
+#include <system_error>
 
 namespace mmoni {
 
@@ -19,9 +21,13 @@ constexpr double kDashboardBaseHeight = 262.0;
 constexpr double kDashboardBannerExtraHeight = 28.0;
 constexpr double kStageMaxHeight = kDashboardBaseHeight + kDashboardBannerExtraHeight;
 
-constexpr UINT_PTR kTimerPeek = 1;
-constexpr UINT_PTR kTimerCollapse = 2;
+constexpr UINT_PTR kTimerHover = 1;
 constexpr UINT_PTR kTimerAnim = 3;
+constexpr DWORD kPeekDelayMs = 280;
+constexpr DWORD kCollapseDelayMs = 240;
+constexpr DWORD kFallbackFrameMs = 16;
+constexpr DWORD kCompositorWaitMs = 34;
+constexpr double kMaxAnimationGapMs = 1000.0 / 30.0;
 
 bool pt_in_rect(const D2D1_RECT_F& r, float x, float y) noexcept {
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
@@ -70,20 +76,30 @@ void OverlayView::start_vsync_pacer() {
     if (!hwnd_) return;
     if (!vsync_wake_event_) {
         vsync_wake_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!vsync_wake_event_) {
+            SetTimer(hwnd_, kTimerAnim, kFallbackFrameMs, nullptr);
+            return;
+        }
     }
     if (!vsync_thread_.joinable()) {
         vsync_stop_.store(false, std::memory_order_release);
-        vsync_thread_ = std::thread(&OverlayView::vsync_worker_loop, this);
+        try {
+            vsync_thread_ = std::thread(&OverlayView::vsync_worker_loop, this);
+        } catch (const std::system_error&) {
+            CloseHandle(vsync_wake_event_);
+            vsync_wake_event_ = nullptr;
+            SetTimer(hwnd_, kTimerAnim, kFallbackFrameMs, nullptr);
+            return;
+        }
+        KillTimer(hwnd_, kTimerAnim);
     }
     vsync_active_.store(true, std::memory_order_release);
-    if (vsync_wake_event_) {
-        SetEvent(vsync_wake_event_);
-    }
+    SetEvent(vsync_wake_event_);
 }
 
 void OverlayView::stop_vsync_pacer() {
     vsync_active_.store(false, std::memory_order_release);
-    anim_tick_pending_.store(false, std::memory_order_release);
+    if (hwnd_ && !vsync_wake_event_) KillTimer(hwnd_, kTimerAnim);
 }
 
 void OverlayView::vsync_worker_loop() {
@@ -93,9 +109,11 @@ void OverlayView::vsync_worker_loop() {
             continue;
         }
 
-        // Sync 1:1 with the monitor's native DWM refresh rate (60/120/144/165/240 Hz).
-        if (FAILED(DwmFlush())) {
-            Sleep(8);
+        // Wait for a frame without waiting for our drawing surface updates to be presented.
+        const double start = now_ms();
+        if (DCompositionWaitForCompositorClock(0, nullptr, kCompositorWaitMs) != 0) {
+            const double remaining = kFallbackFrameMs - (now_ms() - start);
+            if (remaining > 0.0) Sleep(static_cast<DWORD>(std::ceil(remaining)));
         }
 
         if (vsync_stop_.load(std::memory_order_acquire) || !vsync_active_.load(std::memory_order_acquire)) {
@@ -105,9 +123,7 @@ void OverlayView::vsync_worker_loop() {
         // Coalesce pending tick messages so the UI queue is never flooded.
         bool expected = false;
         if (anim_tick_pending_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            if (hwnd_) {
-                PostMessageW(hwnd_, WM_MMONI_ANIM_TICK, 0, 0);
-            } else {
+            if (!PostMessageW(hwnd_, WM_MMONI_ANIM_TICK, 0, 0)) {
                 anim_tick_pending_.store(false, std::memory_order_release);
             }
         }
@@ -209,6 +225,7 @@ bool OverlayView::create(HINSTANCE instance) {
         return false;
     }
 
+    hover_timer_ = CreateThreadpoolTimer(&OverlayView::on_hover_timer, this, nullptr);
     compositor_.set_opacity(settings_.click_through ? 0.78f : 1.0f);
     place_overlay();
     return true;
@@ -249,9 +266,9 @@ void OverlayView::sync_input_region(const D2D1_RECT_F& rect_dip, float radius_di
     }
 }
 
-bool OverlayView::recover_graphics_device() {
+bool OverlayView::recover_graphics_device(bool force) {
     const uint64_t now = GetTickCount64();
-    if (last_recover_ms_ != 0 && now - last_recover_ms_ < 1000ULL) {
+    if (!force && last_recover_ms_ != 0 && now - last_recover_ms_ < 1000ULL) {
         return false;
     }
     last_recover_ms_ = now;
@@ -276,19 +293,35 @@ bool OverlayView::recover_graphics_device() {
     return true;
 }
 
+void OverlayView::handle_display_change() {
+    if (!hwnd_) return;
+    if (d2d_.preferred_adapter_changed()) {
+        recover_graphics_device(true);
+    }
+    if (visible_) {
+        place_overlay();
+    }
+}
+
 void OverlayView::destroy() {
+    cancel_hover();
+    if (hover_timer_) {
+        WaitForThreadpoolTimerCallbacks(hover_timer_, TRUE);
+        CloseThreadpoolTimer(hover_timer_);
+        hover_timer_ = nullptr;
+    }
+
     vsync_stop_.store(true, std::memory_order_release);
     vsync_active_.store(false, std::memory_order_release);
     if (vsync_wake_event_) SetEvent(vsync_wake_event_);
     if (vsync_thread_.joinable()) vsync_thread_.join();
+    anim_tick_pending_.store(false, std::memory_order_release);
     if (vsync_wake_event_) {
         CloseHandle(vsync_wake_event_);
         vsync_wake_event_ = nullptr;
     }
 
     if (hwnd_) {
-        KillTimer(hwnd_, kTimerPeek);
-        KillTimer(hwnd_, kTimerCollapse);
         KillTimer(hwnd_, kTimerAnim);
     }
     compositor_.shutdown();
@@ -305,17 +338,23 @@ void OverlayView::show() {
     visible_ = true;
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     place_overlay();
+    if (collapse_on_leave()) {
+        if (cursor_over_chrome()) track_mouse_leave();
+        else schedule_hover(HoverAction::Collapse);
+    }
 }
 
 void OverlayView::hide() {
     if (!hwnd_) return;
     visible_ = false;
-    KillTimer(hwnd_, kTimerPeek);
-    KillTimer(hwnd_, kTimerCollapse);
-    KillTimer(hwnd_, kTimerAnim);
-    stop_vsync_pacer();
+    cancel_hover();
+    mouse_tracked_ = false;
+    hovered_chrome_ = false;
+    hovered_region_ = HitRegion::None;
+    suppress_hover_until_leave_ = false;
     morph_animating_ = false;
     thumb_animating_ = false;
+    stop_vsync_pacer();
     ShowWindow(hwnd_, SW_HIDE);
 }
 
@@ -352,8 +391,8 @@ void OverlayView::place_overlay() {
         recover_graphics_device();
     }
 
-    stop_vsync_pacer();
     morph_animating_ = false;
+    if (!thumb_animating_) stop_vsync_pacer();
     cur_chrome_rect_ = get_chrome_rect(state_);
     cur_radius_ = static_cast<float>(get_dimensions(state_).r);
     cur_op_[0] = (state_ == IslandState::Minimal) ? 1.0f : 0.0f;
@@ -375,10 +414,7 @@ void OverlayView::apply_settings(const UserSettings& updated) {
     settings_ = updated;
 
     if (click_changed) {
-        if (hwnd_) {
-            KillTimer(hwnd_, kTimerPeek);
-            KillTimer(hwnd_, kTimerCollapse);
-        }
+        cancel_hover();
         if (settings_.click_through && state_ != IslandState::Minimal) {
             pinned_ = false;
             transition_to(IslandState::Minimal);
@@ -387,8 +423,9 @@ void OverlayView::apply_settings(const UserSettings& updated) {
         compositor_.set_opacity(settings_.click_through ? 0.78f : 1.0f);
     }
 
-    if (auto_exp_changed && !settings_.auto_expand_on_hover && state_ == IslandState::Peek) {
-        transition_to(IslandState::Minimal);
+    if (auto_exp_changed && !settings_.auto_expand_on_hover) {
+        if (hover_action_ == HoverAction::Peek) cancel_hover();
+        if (state_ == IslandState::Peek) transition_to(IslandState::Minimal);
     }
 
     invalidate_minimal_cache();
@@ -511,8 +548,87 @@ void OverlayView::display_snapshot(const SensorSnapshot& snapshot) {
     render_now();
 }
 
+void OverlayView::track_mouse_leave() {
+    if (mouse_tracked_) return;
+    TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
+    mouse_tracked_ = TrackMouseEvent(&tme) != FALSE;
+}
+
+bool OverlayView::cursor_over_chrome() const {
+    POINT pt{};
+    if (!visible_ || settings_.click_through || !GetCursorPos(&pt) || WindowFromPoint(pt) != hwnd_) {
+        return false;
+    }
+    ScreenToClient(hwnd_, &pt);
+    return pt_in_rect(cur_chrome_rect_, static_cast<float>(pt.x / placement_.dpi_scale_x),
+                      static_cast<float>(pt.y / placement_.dpi_scale_y));
+}
+
+bool OverlayView::collapse_on_leave() const noexcept {
+    return state_ == IslandState::Peek || (state_ == IslandState::Dashboard && !pinned_);
+}
+
+void OverlayView::schedule_hover(HoverAction action) {
+    if (!visible_ || hover_action_ == action) return;
+    const DWORD delay_ms = action == HoverAction::Peek ? kPeekDelayMs : kCollapseDelayMs;
+    hover_action_ = action;
+    hover_deadline_ms_ = now_ms() + delay_ms;
+    arm_hover_timer(delay_ms);
+}
+
+void OverlayView::arm_hover_timer(DWORD delay_ms) {
+    if (hover_timer_) {
+        // A negative FILETIME is relative and uses 100 ns units.
+        const auto due = static_cast<ULONGLONG>(-10'000LL * delay_ms);
+        FILETIME due_time{static_cast<DWORD>(due), static_cast<DWORD>(due >> 32)};
+        SetThreadpoolTimer(hover_timer_, &due_time, 0, 0);
+    } else {
+        SetTimer(hwnd_, kTimerHover, delay_ms, nullptr);
+    }
+}
+
+void OverlayView::cancel_hover() {
+    if (hover_action_ == HoverAction::None) return;
+    hover_action_ = HoverAction::None;
+    if (hover_timer_) {
+        SetThreadpoolTimer(hover_timer_, nullptr, 0, 0);
+    } else {
+        KillTimer(hwnd_, kTimerHover);
+    }
+}
+
+void CALLBACK OverlayView::on_hover_timer(PTP_CALLBACK_INSTANCE, PVOID context, PTP_TIMER) {
+    const auto* self = static_cast<const OverlayView*>(context);
+    PostMessageW(self->hwnd_, WM_MMONI_HOVER_TIMER, 0, 0);
+}
+
+void OverlayView::handle_hover_timer() {
+    const HoverAction action = hover_action_;
+    if (action == HoverAction::None) return;
+
+    // A message from the previous hover can still be queued after the timer is rearmed.
+    const double remaining = hover_deadline_ms_ - now_ms();
+    if (remaining > 0.0) {
+        arm_hover_timer(static_cast<DWORD>(std::ceil(remaining)));
+        return;
+    }
+    cancel_hover();
+
+    if (!visible_ || settings_.click_through || drag_armed_ || dragging_) return;
+    const bool cursor_inside = cursor_over_chrome();
+    if (action == HoverAction::Peek) {
+        if (state_ == IslandState::Minimal && settings_.auto_expand_on_hover &&
+            !suppress_hover_until_leave_ && cursor_inside) {
+            transition_to(IslandState::Peek);
+        }
+    } else if (!cursor_inside && collapse_on_leave()) {
+        transition_to(IslandState::Minimal);
+    }
+}
+
 void OverlayView::transition_to(IslandState next, bool immediate) {
     if (state_ == next && !immediate) return;
+    cancel_hover();
 
     const IslandState prev = state_;
     state_ = next;
@@ -567,7 +683,6 @@ void OverlayView::transition_to(IslandState next, bool immediate) {
 }
 
 void OverlayView::tick_animations() {
-    anim_tick_pending_.store(false, std::memory_order_release);
     if (!morph_animating_ && !thumb_animating_) {
         stop_vsync_pacer();
         return;
@@ -575,8 +690,10 @@ void OverlayView::tick_animations() {
 
     const double now = now_ms();
     const bool is_glass = (settings_.theme == VisualTheme::LiquidGlass);
-
+    // Keep some motion after a stalled frame, including the first frame of a transition.
+    const double frame_floor = now - kMaxAnimationGapMs;
     if (morph_animating_) {
+        morph_start_ms_ += std::max(0.0, frame_floor - std::max(morph_start_ms_, last_animation_frame_ms_));
         const float raw_t = std::clamp(
             static_cast<float>((now - morph_start_ms_) / std::max(1.0, morph_duration_ms_)),
             0.0f, 1.0f);
@@ -615,6 +732,7 @@ void OverlayView::tick_animations() {
     }
 
     if (thumb_animating_) {
+        thumb_start_ms_ += std::max(0.0, frame_floor - std::max(thumb_start_ms_, last_animation_frame_ms_));
         const float raw_t = std::clamp(
             static_cast<float>((now - thumb_start_ms_) / std::max(1.0, thumb_duration_ms_)),
             0.0f, 1.0f);
@@ -630,6 +748,7 @@ void OverlayView::tick_animations() {
         stop_vsync_pacer();
     }
 
+    last_animation_frame_ms_ = now;
     render_now();
 }
 
@@ -732,15 +851,11 @@ void OverlayView::handle_click(HitRegion region) {
     switch (region) {
         case HitRegion::MinimalSurface:
         case HitRegion::PeekSurface:
-            KillTimer(hwnd_, kTimerPeek);
-            KillTimer(hwnd_, kTimerCollapse);
             pinned_ = true;
             transition_to(IslandState::Dashboard);
             break;
         case HitRegion::DashboardHeader:
         case HitRegion::CollapseButton:
-            KillTimer(hwnd_, kTimerPeek);
-            KillTimer(hwnd_, kTimerCollapse);
             pinned_ = false;
             suppress_hover_until_leave_ = true;
             transition_to(IslandState::Minimal);
@@ -787,7 +902,12 @@ LRESULT CALLBACK OverlayView::wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
 
 LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_MMONI_ANIM_TICK) {
+        anim_tick_pending_.store(false, std::memory_order_release);
         tick_animations();
+        return 0;
+    }
+    if (msg == WM_MMONI_HOVER_TIMER) {
+        handle_hover_timer();
         return 0;
     }
 
@@ -845,11 +965,7 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_MOUSEMOVE: {
-            if (!mouse_tracked_) {
-                TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
-                TrackMouseEvent(&tme);
-                mouse_tracked_ = true;
-            }
+            track_mouse_leave();
 
             if (drag_armed_ || dragging_) {
                 POINT cur_scr{};
@@ -861,8 +977,7 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
                         std::abs(dy) >= GetSystemMetrics(SM_CYDRAG)) {
                         dragging_ = true;
                         drag_armed_ = false;
-                        KillTimer(hwnd_, kTimerPeek);
-                        KillTimer(hwnd_, kTimerCollapse);
+                        cancel_hover();
                     }
                 }
                 if (dragging_) {
@@ -880,20 +995,20 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
 
             if (inside && !hovered_chrome_) {
                 hovered_chrome_ = true;
-                KillTimer(hwnd_, kTimerCollapse);
+                cancel_hover();
                 if (state_ == IslandState::Minimal && !dragging_ && !settings_.click_through) {
                     need_redraw = true;
                     if (settings_.auto_expand_on_hover && !suppress_hover_until_leave_) {
-                        SetTimer(hwnd_, kTimerPeek, 280, nullptr);
+                        schedule_hover(HoverAction::Peek);
                     }
                 }
             } else if (!inside && hovered_chrome_) {
                 hovered_chrome_ = false;
-                KillTimer(hwnd_, kTimerPeek);
+                if (hover_action_ == HoverAction::Peek) cancel_hover();
                 suppress_hover_until_leave_ = false;
                 if (state_ == IslandState::Minimal) need_redraw = true;
-                if ((state_ == IslandState::Peek || (state_ == IslandState::Dashboard && !pinned_)) && !dragging_) {
-                    SetTimer(hwnd_, kTimerCollapse, 240, nullptr);
+                if (!dragging_ && collapse_on_leave()) {
+                    schedule_hover(HoverAction::Collapse);
                 }
             }
 
@@ -925,7 +1040,11 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MOUSELEAVE: {
             mouse_tracked_ = false;
-            KillTimer(hwnd_, kTimerPeek);
+            if (hovered_chrome_ && cursor_over_chrome()) {
+                track_mouse_leave();
+                return 0;
+            }
+            if (hover_action_ == HoverAction::Peek) cancel_hover();
             suppress_hover_until_leave_ = false;
 
             bool need_redraw = hovered_chrome_ || hovered_region_ != HitRegion::None;
@@ -934,8 +1053,8 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
             if (cpu_chart_.clear_scrub()) need_redraw = true;
             if (gpu_chart_.clear_scrub()) need_redraw = true;
 
-            if ((state_ == IslandState::Peek || (state_ == IslandState::Dashboard && !pinned_)) && !dragging_) {
-                SetTimer(hwnd_, kTimerCollapse, 240, nullptr);
+            if (!dragging_ && collapse_on_leave()) {
+                schedule_hover(HoverAction::Collapse);
             }
             if (need_redraw) render_now();
             return 0;
@@ -948,8 +1067,7 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
             pressed_region_ = reg;
 
             if (reg == HitRegion::MinimalSurface || reg == HitRegion::PeekSurface || reg == HitRegion::DashboardHeader) {
-                KillTimer(hwnd_, kTimerPeek);
-                KillTimer(hwnd_, kTimerCollapse);
+                cancel_hover();
                 drag_armed_ = true;
                 dragging_ = false;
                 drag_origin_region_ = reg;
@@ -1014,20 +1132,8 @@ LRESULT OverlayView::handle_message(UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_TIMER: {
-            if (wp == kTimerPeek) {
-                KillTimer(hwnd_, kTimerPeek);
-                if (settings_.auto_expand_on_hover && state_ == IslandState::Minimal &&
-                    !dragging_ && !settings_.click_through && hovered_chrome_) {
-                    transition_to(IslandState::Peek);
-                }
-                return 0;
-            }
-            if (wp == kTimerCollapse) {
-                KillTimer(hwnd_, kTimerCollapse);
-                if (!dragging_ && !hovered_chrome_ &&
-                    (state_ == IslandState::Peek || (state_ == IslandState::Dashboard && !pinned_))) {
-                    transition_to(IslandState::Minimal);
-                }
+            if (wp == kTimerHover) {
+                handle_hover_timer();
                 return 0;
             }
             if (wp == kTimerAnim) {

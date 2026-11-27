@@ -40,6 +40,7 @@ public:
     void show();
     void hide();
     void place_overlay();
+    void handle_display_change();
     void ensure_topmost();
 
     void apply_settings(const UserSettings& updated);
@@ -62,6 +63,16 @@ private:
     Dim get_dimensions(IslandState st) const noexcept;
     D2D1_RECT_F get_chrome_rect(IslandState st) const noexcept;
 
+    enum class HoverAction { None, Peek, Collapse };
+    void track_mouse_leave();
+    bool cursor_over_chrome() const;
+    bool collapse_on_leave() const noexcept;
+    void schedule_hover(HoverAction action);
+    void arm_hover_timer(DWORD delay_ms);
+    void cancel_hover();
+    void handle_hover_timer();
+    static void CALLBACK on_hover_timer(PTP_CALLBACK_INSTANCE, PVOID context, PTP_TIMER);
+
     void transition_to(IslandState next, bool immediate = false);
     void start_vsync_pacer();
     void stop_vsync_pacer();
@@ -70,7 +81,7 @@ private:
     void tick_animations();
     void render_now();
     void sync_input_region(const D2D1_RECT_F& rect_dip, float radius_dip);
-    bool recover_graphics_device();
+    bool recover_graphics_device(bool force = false);
     void invalidate_minimal_cache() noexcept;
     bool minimal_visual_changed(const SensorSnapshot& snap) const;
     void refresh_chart_stats();
@@ -85,6 +96,9 @@ private:
     HINSTANCE instance_ = nullptr;
     bool visible_ = false;
     bool mouse_tracked_ = false;
+    PTP_TIMER hover_timer_ = nullptr;
+    HoverAction hover_action_ = HoverAction::None;
+    double hover_deadline_ms_ = 0.0;
 
     D2DContext d2d_;
     CompositorHost compositor_;
@@ -121,8 +135,9 @@ private:
     POINT drag_start_hwnd_{};
     HitRegion drag_origin_region_ = HitRegion::None;
 
-    // Smooth morph animation state (DWM VSync-paced to native refresh rate, 0% CPU when idle)
+    // The worker waits for the compositor clock only while animating.
     double qpc_to_ms_ = 0.0;
+    double last_animation_frame_ms_ = 0.0;
     std::atomic<bool> vsync_stop_{false};
     std::atomic<bool> vsync_active_{false};
     std::atomic<bool> anim_tick_pending_{false};

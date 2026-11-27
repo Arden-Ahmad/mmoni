@@ -176,8 +176,8 @@ void AppController::on_custom_message(UINT msg, WPARAM wp, LPARAM lp) {
 
     if (msg == WM_DISPLAYCHANGE) {
         if (monitor_) monitor_->request_topology_refresh();
-        if (overlay_ && overlay_->is_visible()) {
-            overlay_->place_overlay();
+        if (overlay_) {
+            overlay_->handle_display_change();
         }
     }
 }

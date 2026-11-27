@@ -9,8 +9,8 @@ Mmoni is a minimal, ultra-lightweight Windows 11 desktop telemetry overlay for C
 - **~507 KB single executable** (`~2.16 MB` Inno Setup installer), statically linked (`/MT`)
 - **~13–15 MB Working Set** and **0.00% idle CPU** at 1 Hz polling
 - **< 1 ms sensor polling** (vs ~327 ms with LibreHardwareMonitorLib)
-- **Single-HWND Windows 11 Liquid Glass** (`HostBackdropBrush` + Direct2D/DirectWrite pinned strictly to iGPU on hybrid laptops, plus **Precision Dark** no-blur theme)
-- **Native monitor refresh-rate transitions** (DWM `DwmFlush()` VSync pacer + QPC, sleeping at 0% CPU when idle)
+- **Single-HWND Windows 11 Liquid Glass** (`HostBackdropBrush` + Direct2D/DirectWrite on the active display GPU — stays on iGPU in Optimus mode so hybrid laptops never wake a sleeping dGPU, plus **Precision Dark** no-blur theme)
+- **Compositor-paced transitions** (DirectComposition compositor clock + QPC, with the animation worker asleep when idle)
 - **True cross-process click-through** outside the visible pill/peek/dashboard bounds (`SetWindowRgn`), Aero Peek exclusion (`DWMWA_EXCLUDED_FROM_PEEK`), and Optimus/hybrid dGPU D3 sleep protection via `CfgMgr32`
 
 ## Build & Install (Windows 11 22H2+)

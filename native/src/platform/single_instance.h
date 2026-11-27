@@ -10,6 +10,7 @@ constexpr UINT WM_MMONI_EXIT = WM_APP + 2;
 constexpr UINT WM_MMONI_SNAPSHOT = WM_APP + 3;
 constexpr UINT WM_MMONI_TRAY = WM_APP + 4;
 constexpr UINT WM_MMONI_ANIM_TICK = WM_APP + 5;
+constexpr UINT WM_MMONI_HOVER_TIMER = WM_APP + 6;
 
 class SingleInstance {
 public:

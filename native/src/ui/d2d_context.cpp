@@ -1,10 +1,85 @@
 #include "ui/d2d_context.h"
 
+#include <vector>
+
 using Microsoft::WRL::ComPtr;
 
 namespace mmoni {
 
-bool D2DContext::create_d3d_device_igpu() {
+namespace {
+
+bool is_integrated_adapter(const DXGI_ADAPTER_DESC1& desc) noexcept {
+    if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0) return false;
+    if (desc.VendorId == 0x10DE) return false; // NVIDIA is always discrete on Windows laptops/desktops
+    if (desc.VendorId == 0x8086) return desc.DedicatedVideoMemory < (2048ULL * 1024ULL * 1024ULL);
+    if (desc.VendorId == 0x1002) return desc.DedicatedVideoMemory < (1024ULL * 1024ULL * 1024ULL);
+    return false;
+}
+
+bool adapter_has_attached_output(IDXGIAdapter1* adapter) noexcept {
+    if (!adapter) return false;
+    ComPtr<IDXGIOutput> output;
+    return adapter->EnumOutputs(0, &output) != DXGI_ERROR_NOT_FOUND && output != nullptr;
+}
+
+bool same_luid(const LUID& a, const LUID& b) noexcept {
+    return a.LowPart == b.LowPart && a.HighPart == b.HighPart;
+}
+
+struct AdapterCandidate {
+    ComPtr<IDXGIAdapter1> adapter;
+    LUID luid{};
+    bool integrated = false;
+    bool has_output = false;
+};
+
+// Enumerates hardware adapters ordered so Optimus/MSHybrid laptops stay on the display-driving iGPU
+// (zero dGPU wake), while MUX / Advanced Optimus / dGPU-wired display setups pick the active display
+// GPU instead of a sleeping headless iGPU (avoiding 150-480 ms cross-adapter wake stalls).
+std::vector<AdapterCandidate> enumerate_preferred_adapters() {
+    std::vector<AdapterCandidate> raw;
+    ComPtr<IDXGIFactory6> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) || !factory) {
+        return raw;
+    }
+
+    for (UINT idx = 0;; ++idx) {
+        ComPtr<IDXGIAdapter1> adapter;
+        if (FAILED(factory->EnumAdapterByGpuPreference(idx, DXGI_GPU_PREFERENCE_MINIMUM_POWER, IID_PPV_ARGS(&adapter)))) {
+            break;
+        }
+        DXGI_ADAPTER_DESC1 desc{};
+        if (FAILED(adapter->GetDesc1(&desc)) || (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0) {
+            continue;
+        }
+        AdapterCandidate cand{};
+        cand.adapter = std::move(adapter);
+        cand.luid = desc.AdapterLuid;
+        cand.integrated = is_integrated_adapter(desc);
+        cand.has_output = adapter_has_attached_output(cand.adapter.Get());
+        raw.push_back(std::move(cand));
+    }
+
+    std::vector<AdapterCandidate> ordered;
+    ordered.reserve(raw.size());
+    auto append_matching = [&](bool need_integrated, bool need_output) {
+        for (const auto& c : raw) {
+            if (c.integrated == need_integrated && c.has_output == need_output) {
+                ordered.push_back(c);
+            }
+        }
+    };
+
+    append_matching(true, true);   // Pass 1: iGPU driving an active display (Optimus / MSHybrid)
+    append_matching(false, true);  // Pass 2: dGPU driving an active display (MUX / Advanced Optimus / dGPU monitor)
+    append_matching(true, false);  // Pass 3: headless iGPU fallback (RDP / display transition)
+    append_matching(false, false); // Pass 4: headless dGPU fallback
+    return ordered;
+}
+
+} // namespace
+
+bool D2DContext::create_d3d_device() {
     const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_SINGLETHREADED;
     const D3D_FEATURE_LEVEL levels[] = {
         D3D_FEATURE_LEVEL_11_1,
@@ -28,46 +103,12 @@ bool D2DContext::create_d3d_device_igpu() {
         return SUCCEEDED(hr) && d3d_device_ != nullptr;
     };
 
-    auto is_integrated = [](const DXGI_ADAPTER_DESC1& desc) noexcept -> bool {
-        if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0) return false;
-        if (desc.VendorId == 0x10DE) return false; // NVIDIA is always discrete on Windows laptops/desktops
-        if (desc.VendorId == 0x8086) return desc.DedicatedVideoMemory < (2048ULL * 1024ULL * 1024ULL);
-        if (desc.VendorId == 0x1002) return desc.DedicatedVideoMemory < (1024ULL * 1024ULL * 1024ULL);
-        return false;
-    };
-
-    ComPtr<IDXGIFactory6> factory;
-    if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) && factory) {
-        // Pass 1: Strictly pick an integrated GPU if present so hybrid laptops NEVER wake the dGPU.
-        bool any_integrated_found = false;
-        for (UINT idx = 0;; ++idx) {
-            ComPtr<IDXGIAdapter1> adapter;
-            if (FAILED(factory->EnumAdapterByGpuPreference(idx, DXGI_GPU_PREFERENCE_MINIMUM_POWER, IID_PPV_ARGS(&adapter)))) {
-                break;
-            }
-            DXGI_ADAPTER_DESC1 desc{};
-            if (SUCCEEDED(adapter->GetDesc1(&desc)) && is_integrated(desc)) {
-                any_integrated_found = true;
-                if (try_create_on_adapter(adapter.Get())) {
-                    return true;
-                }
-            }
-        }
-
-        // Pass 2: Only if NO integrated GPU exists (e.g., dGPU-only desktop), use first hardware adapter.
-        if (!any_integrated_found) {
-            for (UINT idx = 0;; ++idx) {
-                ComPtr<IDXGIAdapter1> adapter;
-                if (FAILED(factory->EnumAdapterByGpuPreference(idx, DXGI_GPU_PREFERENCE_MINIMUM_POWER, IID_PPV_ARGS(&adapter)))) {
-                    break;
-                }
-                DXGI_ADAPTER_DESC1 desc{};
-                if (SUCCEEDED(adapter->GetDesc1(&desc)) && (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
-                    if (try_create_on_adapter(adapter.Get())) {
-                        return true;
-                    }
-                }
-            }
+    const auto candidates = enumerate_preferred_adapters();
+    for (const auto& cand : candidates) {
+        if (try_create_on_adapter(cand.adapter.Get())) {
+            adapter_luid_ = cand.luid;
+            using_warp_ = false;
+            return true;
         }
     }
 
@@ -83,7 +124,21 @@ bool D2DContext::create_d3d_device_igpu() {
         &d3d_device_,
         nullptr,
         nullptr);
-    return SUCCEEDED(hr) && d3d_device_ != nullptr;
+    if (SUCCEEDED(hr) && d3d_device_ != nullptr) {
+        adapter_luid_ = {};
+        using_warp_ = true;
+        return true;
+    }
+    return false;
+}
+
+bool D2DContext::preferred_adapter_changed() const noexcept {
+    if (!d3d_device_) return false;
+    const auto candidates = enumerate_preferred_adapters();
+    if (candidates.empty()) {
+        return !using_warp_;
+    }
+    return using_warp_ || !same_luid(adapter_luid_, candidates.front().luid);
 }
 
 bool D2DContext::init() {
@@ -109,7 +164,7 @@ bool D2DContext::init() {
         }
     }
 
-    if (!create_d3d_device_igpu()) {
+    if (!create_d3d_device()) {
         return false;
     }
 
@@ -128,6 +183,8 @@ void D2DContext::reset() {
     d2d_device_.Reset();
     dxgi_device_.Reset();
     d3d_device_.Reset();
+    adapter_luid_ = {};
+    using_warp_ = false;
 }
 
 ComPtr<IDWriteTextFormat> D2DContext::create_text_format(

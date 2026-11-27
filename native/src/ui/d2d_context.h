@@ -17,6 +17,7 @@ public:
     bool init();
     void reset();
     bool is_ready() const noexcept { return d2d_device_ != nullptr && dwrite_factory_ != nullptr; }
+    bool preferred_adapter_changed() const noexcept;
 
     ID3D11Device* d3d_device() const noexcept { return d3d_device_.Get(); }
     IDXGIDevice* dxgi_device() const noexcept { return dxgi_device_.Get(); }
@@ -38,7 +39,7 @@ public:
         float max_height) const;
 
 private:
-    bool create_d3d_device_igpu();
+    bool create_d3d_device();
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device_;
@@ -46,6 +47,8 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IDWriteTypography> tabular_typography_;
+    LUID adapter_luid_{};
+    bool using_warp_ = false;
 };
 
 } // namespace mmoni
